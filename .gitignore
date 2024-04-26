@@ -3,3 +3,6 @@ cabal.sandbox.config
 
 # vim swapfiles
 *.sw*
+
+# nix result symlinks
+result*
