@@ -164,23 +164,29 @@ import System.IO.Unsafe(unsafeInterleaveIO)
 import Control.Applicative
 #endif
 
+-- TODO add a join function to avoid packing + unpacking?
+-- TODO wait can I just use IsString instead?
+class TreeName a where
+  fp2n :: FilePath -> a
+  n2fp :: a -> FilePath
+
 -- | the String in the name field is always a file name, never a full path.
 -- The free type variable is used in the File constructor and can hold Handles,
 -- Strings representing a file's contents or anything else you can think of.
 -- We catch any IO errors in the Failed constructor. an Exception can be
 -- converted to a String with 'show'.
-data DirTree a = Failed { name :: FileName,
-                          err  :: IOException     }
-               | Dir    { name     :: FileName,
-                          contents :: [DirTree a] }
-               | File   { name :: FileName,
-                          file :: a               }
-                 deriving Show
+data DirTree n a = Failed { name :: n,
+                            err  :: IOException     }
+                 | Dir    { name     :: n,
+                            contents :: [DirTree n a] }
+                 | File   { name :: n,
+                            file :: a               }
+                   deriving Show -- TODO will this work?
 
 
 -- | Two DirTrees are equal if they have the same constructor, the same name
 -- (and in the case of `Dir`s) their sorted `contents` are equal:
-instance (Eq a)=> Eq (DirTree a) where
+instance (Eq n, Eq a)=> Eq (DirTree n a) where
     (File n a) == (File n' a') = n == n' && a == a'
     (Dir n cs) == (Dir n' cs') =
         n == n' && sortBy comparingConstr cs == sortBy comparingConstr cs'
@@ -191,7 +197,7 @@ instance (Eq a)=> Eq (DirTree a) where
 -- | First compare constructors: Failed < Dir < File...
 -- Then compare `name`...
 -- Then compare free variable parameter of `File` constructors
-instance (Ord a,Eq a) => Ord (DirTree a) where
+instance (Ord n, Ord a, Eq n, Eq a) => Ord (DirTree n a) where
     compare (File n a) (File n' a') =
         case compare n n' of
              EQ -> compare a a'
@@ -209,21 +215,25 @@ instance (Ord a,Eq a) => Ord (DirTree a) where
 -- absolute or relative path. This lets us give the DirTree a context, while
 -- still letting us store only directory and file /names/ (not full paths) in
 -- the DirTree. (uses an infix constructor; don't be scared)
-data AnchoredDirTree a = (:/) { anchor :: FilePath, dirTree :: DirTree a }
+data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
                      deriving (Show, Ord, Eq)
 
 
 -- | an element in a FilePath:
 type FileName = String
 
+-- TODO what's illegal about this?
+instance TreeName String where
+  fp2n = id
+  n2fp = id
 
-instance Functor DirTree where
+instance Functor (DirTree n) where
     fmap = T.fmapDefault
 
-instance F.Foldable DirTree where
+instance F.Foldable (DirTree n) where
     foldMap = T.foldMapDefault
 
-instance T.Traversable DirTree where
+instance T.Traversable (DirTree n) where
     traverse f (Dir n cs)   = Dir n <$> T.traverse (T.traverse f) cs
     traverse f (File n a)   = File n <$> f a
     traverse _ (Failed n e) = pure (Failed n e)
@@ -231,7 +241,7 @@ instance T.Traversable DirTree where
 
 
 -- for convenience:
-instance Functor AnchoredDirTree where
+instance Functor (AnchoredDirTree n) where
     fmap f (b:/d) = b :/ fmap f d
 
 
@@ -263,7 +273,7 @@ readDirectory = readDirectoryWith readFile
 -- > readDirectoryWith return "../tmp"
 --
 -- Note though that the 'build' function below already does this.
-readDirectoryWith :: (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
+readDirectoryWith :: TreeName n => (n -> IO a) -> FilePath -> IO (AnchoredDirTree a)
 readDirectoryWith f p = buildWith' buildAtOnce' f p
 
 
@@ -275,17 +285,17 @@ readDirectoryWith f p = buildWith' buildAtOnce' f p
 --
 -- * side effects are tied to evaluation order and only run on demand
 -- * you might receive exceptions in pure code
-readDirectoryWithL :: (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
+readDirectoryWithL :: TreeName n => (n -> IO a) -> FilePath -> IO (AnchoredDirTree a)
 readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
 
 -- | Generate a string that represents tree command-like output for a
 -- given DirTree.
 -- Instances of Failed will be removed from the tree before it is displayed.
 -- Use showTreeFormatted to apply formatting to the output.
-showTree :: DirTree a -> String
+showTree :: TreeName n => DirTree n a -> String
 showTree tree =
     let treeNoFailed = filterDir notFailed tree
-        nameOnlyF = \x -> name x
+        nameOnlyF = \x -> n2fp $ name x
         treeM = showTree' nameOnlyF "" True treeNoFailed
     in fromMaybe "" treeM
         where notFailed (Failed _ _) = False
@@ -297,7 +307,7 @@ showTree tree =
 -- objects within the tree to be customized.
 -- If combined with a package such as ansi-terminal, this allows the tree
 -- output to be colourized.
-showTreeFormatted :: (DirTree a -> String) -> DirTree a -> String
+showTreeFormatted :: (DirTree n a -> String) -> DirTree n a -> String
 showTreeFormatted formatF tree =
     let treeNoFailed = filterDir notFailed tree
         treeM = showTree' formatF "" True treeNoFailed
@@ -315,7 +325,7 @@ substituteJoiner joiner str =
         then take (length str - indWidth) str <> (joiner:"──")
         else str
 
-showTree' :: (DirTree a -> String) -> String -> Bool -> DirTree a -> Maybe String
+showTree' :: (DirTree n a -> String) -> String -> Bool -> DirTree n a -> Maybe String
 showTree' formatF prelimStr isLast dir@(Dir nm conts) =
     let joiner = if isLast then '└' else '├'
         thisLineStr = substituteJoiner joiner prelimStr
@@ -337,7 +347,7 @@ showTree' _ _ _ (Failed _ _) = error "Cannot showTree' for Failed"
 -- Doesn't affect files in the directories (if any already exist) with
 -- different names. Returns a new AnchoredDirTree where failures were
 -- lifted into a `Failed` constructor:
-writeDirectory :: AnchoredDirTree String -> IO (AnchoredDirTree ())
+writeDirectory :: TreeName n => AnchoredDirTree n String -> IO (AnchoredDirTree n ())
 writeDirectory = writeDirectoryWith writeFile
 
 
@@ -346,10 +356,10 @@ writeDirectory = writeDirectoryWith writeFile
 -- become the new `contents` of the returned, where IO errors at each node are
 -- replaced with `Failed` constructors. The returned tree can be compared to
 -- the passed tree to see what operations, if any, failed:
-writeDirectoryWith :: (FilePath -> a -> IO b) -> AnchoredDirTree a -> IO (AnchoredDirTree b)
+writeDirectoryWith :: TreeName n => (n -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
-              File n <$> f (b'</>n) a
+              File n <$> f ( (n2fp b') </> (n2fp n) ) a
           write' b' (Dir n cs) = handleDT n $
               do let bas = b'</>n
                  createDirectoryIfMissing True bas
@@ -367,7 +377,7 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
 
 
 -- | a simple application of readDirectoryWith openFile:
-openDirectory :: FilePath -> IOMode -> IO (AnchoredDirTree Handle)
+openDirectory :: TreeName n => FilePath -> IOMode -> IO (AnchoredDirTree n Handle)
 openDirectory p m = readDirectoryWith (flip openFile m) p
 
 
@@ -376,13 +386,13 @@ openDirectory p m = readDirectoryWith (flip openFile m) p
 -- the base directory in the Anchored* wrapper. Errors are caught in the tree in
 -- the Failed constructor. The 'file' fields initially are populated with full
 -- paths to the files they are abstracting.
-build :: FilePath -> IO (AnchoredDirTree FilePath)
+build :: TreeName n => FilePath -> IO (AnchoredDirTree n FilePath)
 build = buildWith' buildAtOnce' return   -- we say 'return' here to get
                                          -- back a  tree  of  FilePaths
 
 
 -- | identical to `build` but does directory reading IO lazily as needed:
-buildL :: FilePath -> IO (AnchoredDirTree FilePath)
+buildL :: TreeName n => FilePath -> IO (AnchoredDirTree n FilePath)
 buildL = buildWith' buildLazilyUnsafe' return
 
 
@@ -392,11 +402,11 @@ buildL = buildWith' buildLazilyUnsafe' return
 
 
 type UserIO a = FilePath -> IO a
-type Builder a = UserIO a -> FilePath -> IO (DirTree a)
+type Builder n a = TreeName n => UserIO a -> FilePath -> IO (DirTree n a)
 
 -- remove non-existent file errors, which are artifacts of the "non-atomic"
 -- nature of traversing a system directory tree:
-buildWith' :: Builder a -> UserIO a -> FilePath -> IO (AnchoredDirTree a)
+buildWith' :: TreeName n => Builder a -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 buildWith' bf' f p =
     do tree <- bf' f p
        return (baseDir p :/ removeNonexistent tree)
