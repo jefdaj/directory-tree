@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP               #-}
+{-# LANGUAGE BangPatterns      #-}
 --------------------------------------------------------------------
 -- |
 -- Module    : System.Directory.Tree
@@ -36,13 +37,14 @@ module System.Directory.Tree (
        -- * Data types for representing directory trees
          DirTree (..)
        , AnchoredDirTree (..)
-       , FileName
+       , Name
 
 
        -- * High level IO functions
        , readDirectory
        , readDirectoryWith
        , readDirectoryWithL
+       , readDirectoryWithLD -- turns strict after max recursion depth
        , writeDirectory
        , writeDirectoryWith
 
@@ -142,6 +144,12 @@ CHANGES:
             zipper usage!
 -}
 
+-- A hack to prevent symlink cycles, which only works for bigtrees's particular use case
+-- TODO make a separate "Annex Utils" module for this?
+import System.Directory.BigTrees.Name (Name(..))
+import System.Directory.BigTrees.FilePath (n2fp, fp2n, isNonAnnexSymlink)
+import qualified Data.Text as T
+
 import System.Directory
 import System.FilePath
 import System.IO
@@ -166,12 +174,12 @@ import Control.Applicative
 -- Strings representing a file's contents or anything else you can think of.
 -- We catch any IO errors in the Failed constructor. an Exception can be
 -- converted to a String with 'show'.
-data DirTree a = Failed { name :: FileName,
-                          err  :: IOException     }
-               | Dir    { name     :: FileName,
+data DirTree a = Failed { name :: !Name,
+                          err  :: !IOException     }
+               | Dir    { name     :: !Name,
                           contents :: [DirTree a] }
-               | File   { name :: FileName,
-                          file :: a               }
+               | File   { name :: !Name,
+                          file :: !a               } -- no effect on memory
                  deriving Show
 
 
@@ -206,12 +214,8 @@ instance (Ord a,Eq a) => Ord (DirTree a) where
 -- absolute or relative path. This lets us give the DirTree a context, while
 -- still letting us store only directory and file /names/ (not full paths) in
 -- the DirTree. (uses an infix constructor; don't be scared)
-data AnchoredDirTree a = (:/) { anchor :: FilePath, dirTree :: DirTree a }
+data AnchoredDirTree a = (:/) { anchor :: !FilePath, dirTree :: DirTree a }
                      deriving (Show, Ord, Eq)
-
-
--- | an element in a FilePath:
-type FileName = String
 
 
 instance Functor DirTree where
@@ -275,6 +279,9 @@ readDirectoryWith f p = buildWith' buildAtOnce' f p
 readDirectoryWithL :: (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
 readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
 
+readDirectoryWithLD :: Int -> (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
+readDirectoryWithLD d f p = buildWith' (buildLazilyUnsafeD d) f p
+
 
 -- | write a DirTree of strings to disk. Clobbers files of the same name.
 -- Doesn't affect files in the directories (if any already exist) with
@@ -292,9 +299,9 @@ writeDirectory = writeDirectoryWith writeFile
 writeDirectoryWith :: (FilePath -> a -> IO b) -> AnchoredDirTree a -> IO (AnchoredDirTree b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
-              File n <$> f (b'</>n) a
+              File n <$> f (b'</>n2fp n) a
           write' b' (Dir n cs) = handleDT n $
-              do let bas = b'</>n
+              do let bas = b'</>n2fp n
                  createDirectoryIfMissing True bas
                  Dir n <$> mapM (write' bas) cs
           write' _ (Failed n e) = return $ Failed n e
@@ -347,41 +354,66 @@ buildWith' bf' f p =
 
 
 -- IO function passed to our builder and finally executed here:
+-- TODO refactor to reference the new "Annex Utils" module? or something else?
 buildAtOnce' :: Builder a
-buildAtOnce' f p = handleDT n $
+buildAtOnce' f p = handleDT n' $
            do isFile <- doesFileExist p
-              if isFile
-                 then  File n <$> f p
+              isLinkToSkip <- isNonAnnexSymlink p
+              if isFile || isLinkToSkip -- TODO any more elegant way to do this??
+                 then  File n' <$> f p
                  else do cs <- getDirsFiles p
-                         Dir n <$> T.mapM (buildAtOnce' f . combine p) cs
-     where n = topDir p
+                         Dir n' <$> T.mapM (buildAtOnce' f . combine p) cs
+     where
+       n  = topDir p
+       n' = fp2n n
 
 
 unsafeMapM :: (a -> IO b) -> [a] -> IO [b]
 unsafeMapM _    []  = return []
 unsafeMapM f (x:xs) = unsafeInterleaveIO io
   where
+    -- strictness has no effect on memory?
     io = do
-        y  <- f x
-        ys <- unsafeMapM f xs
-        return (y:ys)
+        !y  <- f x
+        !ys <- unsafeMapM f xs
+        let !ys' = y:ys
+        return ys'
 
 
 -- using unsafeInterleaveIO to get "lazy" traversal:
 buildLazilyUnsafe' :: Builder a
-buildLazilyUnsafe' f p = handleDT n $
+buildLazilyUnsafe' f p = handleDT n' $
            do isFile <- doesFileExist p
-              if isFile
-                 then  File n <$> f p
+              isLinkToSkip <- isNonAnnexSymlink p
+              if isFile || isLinkToSkip -- TODO any more elegant way to do this??
+                 then  File n' <$> f p
                  else do
                      files <- getDirsFiles p
 
                      -- HERE IS THE UNSAFE LINE:
                      dirTrees <- unsafeMapM (rec . combine p) files
 
-                     return (Dir n dirTrees)
-     where rec = buildLazilyUnsafe' f
-           n = topDir p
+                     return (Dir n' dirTrees)
+  where rec = buildLazilyUnsafe' f
+        n = topDir p
+        n' = fp2n n
+
+-- works like buildLazilyUnsafe' up to depth d, then switches to buildAtOnce
+buildLazilyUnsafeD :: Int -> Builder a
+buildLazilyUnsafeD d f p = handleDT (fp2n n) $
+           do isFile <- doesFileExist p
+              isLinkToSkip <- isNonAnnexSymlink p
+              if isFile || isLinkToSkip -- TODO any more elegant way to do this??
+                 then  File (fp2n n) <$> f p
+                 else do
+                     files <- getDirsFiles p
+
+                     -- HERE IS THE UNSAFE LINE:
+                     dirTrees <- unsafeMapM (rec . combine p) files
+
+                     return (Dir (fp2n n) dirTrees)
+  where rec = if d < 0 then buildLazilyUnsafeD (d-1) f else buildAtOnce' f
+        n = topDir p
 
 
 
@@ -416,7 +448,7 @@ failures = filter failed . flattenDir
 
 
 -- | maps a function to convert Failed DirTrees to Files or Dirs
-failedMap :: (FileName -> IOException -> DirTree a) -> DirTree a -> DirTree a
+failedMap :: (Name -> IOException -> DirTree a) -> DirTree a -> DirTree a
 failedMap f = transformDir unFail
     where unFail (Failed n e) = f n e
           unFail c            = c
@@ -479,8 +511,6 @@ comparingConstr (Dir _ _)    (File _ _)   = LT
 comparingConstr t t'  = compare (name t) (name t')
 
 
-
-
 ---- OTHER ----
 
 {-# DEPRECATED free "Use record 'dirTree'" #-}
@@ -488,13 +518,13 @@ comparingConstr t t'  = compare (name t) (name t')
 free :: AnchoredDirTree a -> DirTree a
 free = dirTree
 
--- | If the argument is a 'Dir' containing a sub-DirTree matching 'FileName'
+-- | If the argument is a 'Dir' containing a sub-DirTree matching 'Name'
 -- then return that subtree, appending the 'name' of the old root 'Dir' to the
 -- 'anchor' of the AnchoredDirTree wrapper. Otherwise return @Nothing@.
-dropTo :: FileName -> AnchoredDirTree a -> Maybe (AnchoredDirTree a)
+dropTo :: Name -> AnchoredDirTree a -> Maybe (AnchoredDirTree a)
 dropTo n' (p :/ Dir n ds') = search ds'
     where search [] = Nothing
-          search (d:ds) | equalFilePath n' (name d) = Just ((p</>n) :/ d)
+          search (d:ds) | n' == name d = Just ((p</> n2fp n) :/ d)
                         | otherwise = search ds
 dropTo _ _ = Nothing
 
@@ -554,8 +584,8 @@ isDirC _ = False
 -- strings, although 'writeDirectory' does a better job of this.
 zipPaths :: AnchoredDirTree a -> DirTree (FilePath, a)
 zipPaths (b :/ t) = zipP b t
-    where zipP p (File n a)   = File n (p</>n , a)
-          zipP p (Dir n cs)   = Dir n $ map (zipP $ p</>n) cs
+    where zipP p (File n a)   = File n (p</>n2fp n , a)
+          zipP p (Dir n cs)   = Dir n $ map (zipP $ p</>n2fp n) cs
           zipP _ (Failed n e) = Failed n e
 
 
@@ -592,7 +622,7 @@ getDirsFiles cs = do let cs' = if null cs then "." else cs
 
 -- handles an IO exception by returning a Failed constructor filled with that
 -- exception:
-handleDT :: FileName -> IO (DirTree a) -> IO (DirTree a)
+handleDT :: Name -> IO (DirTree a) -> IO (DirTree a)
 handleDT n = handle (return . Failed n)
 
 
@@ -633,7 +663,7 @@ _file ::
 
 _name ::
         Functor f =>
-        (FileName -> f FileName) -> DirTree a -> f (DirTree a)
+        (Name -> f Name) -> DirTree a -> f (DirTree a)
 
 _anchor ::
           Functor f =>
