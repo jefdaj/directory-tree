@@ -297,7 +297,7 @@ readDirectoryWith f p = buildWith' buildAtOnce' f p
 --
 -- * side effects are tied to evaluation order and only run on demand
 -- * you might receive exceptions in pure code
-readDirectoryWithL :: TreeName n => (n -> IO a) -> FilePath -> IO (AnchoredDirTree n a)
+readDirectoryWithL :: TreeName n => (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree n a)
 readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
 
 -- | Generate a string that represents tree command-like output for a
