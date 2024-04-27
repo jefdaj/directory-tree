@@ -177,14 +177,14 @@ class IsName n where
   n2p :: n -> FilePath
 
   -- Append a name to a FilePath
+  -- TODO call it pappend? something else?
   nappend :: FilePath -> n -> FilePath
   nappend p n = p </> n2p n
 
--- | The name field is always a file name, never a full path.
--- The free type variable is used in the File constructor and can hold Handles,
--- Strings representing a file's contents or anything else you can think of.
--- We catch any IO errors in the Failed constructor. an Exception can be
--- converted to a String with 'show'.
+-- | The first free type variable is for file names. The second is used in the
+-- File constructor and can hold Handles, Strings representing a file's contents
+-- or anything else you can think of. We catch any IO errors in the Failed
+-- constructor. an Exception can be converted to a String with 'show'.
 data DirTree n a = Failed { name :: n,
                             err  :: IOException     }
                  | Dir    { name     :: n,
@@ -225,8 +225,6 @@ instance (Ord n, Ord a, Eq n, Eq a) => Ord (DirTree n a) where
 -- absolute or relative path. This lets us give the DirTree n a context, while
 -- still letting us store only directory and file /names/ (not full paths) in
 -- the DirTree. (uses an infix constructor; don't be scared)
--- TODO the anchor should be either a full path or a list of names, right?
--- TODO use Sequence for the anchor lists for efficient append
 data AnchoredDirTree n a = (:/) { anchor :: FilePath, dirTree :: DirTree n a }
                      deriving (Show, Ord, Eq)
 
@@ -236,7 +234,6 @@ data AnchoredDirTree n a = (:/) { anchor :: FilePath, dirTree :: DirTree n a }
 -- https://stackoverflow.com/a/8663534
 type FileName = String
 
--- TODO does anyone mind that this requires FlexibleInstances?
 instance IsName FileName where
   p2n = id
   n2p = id
@@ -273,6 +270,7 @@ infixl 4 </$>
 -- Uses @readDirectoryWith readFile@ internally and has the effect of traversing the
 -- entire directory structure. See `readDirectoryWithL` for lazy production
 -- of a DirTree structure.
+-- TODO version not specialized to FilePath?
 readDirectory :: FilePath -> IO (AnchoredDirTree FilePath String)
 readDirectory = readDirectoryWith readFile
 
@@ -361,7 +359,7 @@ showTree' _ _ _ (Failed _ _) = error "Cannot showTree' for Failed"
 -- Doesn't affect files in the directories (if any already exist) with
 -- different names. Returns a new AnchoredDirTree where failures were
 -- lifted into a `Failed` constructor:
--- TODO less specialized version of this?
+-- TODO version not specialized to FilePath?
 writeDirectory :: AnchoredDirTree FilePath String -> IO (AnchoredDirTree FilePath ())
 writeDirectory = writeDirectoryWith writeFile
 
@@ -392,6 +390,7 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
 
 
 -- | a simple application of readDirectoryWith openFile:
+-- TODO version not specialized to FilePath?
 openDirectory :: FilePath -> IOMode -> IO (AnchoredDirTree FilePath Handle)
 openDirectory p m = readDirectoryWith (flip openFile m) p
 
@@ -424,7 +423,7 @@ type Builder n a = UserIO a -> FilePath -> IO (DirTree n a)
 buildWith' :: IsName n => Builder n a -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 buildWith' bf' f p =
     do tree <- bf' f p
-       return (p2n (baseDir p) :/ removeNonexistent tree)
+       return (baseDir p :/ removeNonexistent tree)
 
 
 
