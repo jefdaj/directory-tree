@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP               #-}
+{-# LANGUAGE FlexibleInstances #-}
 --------------------------------------------------------------------
 -- |
 -- Module    : System.Directory.Tree
@@ -164,8 +165,12 @@ import System.IO.Unsafe(unsafeInterleaveIO)
 import Control.Applicative
 #endif
 
--- TODO add a join function to avoid packing + unpacking?
--- TODO wait can I just use IsString instead?
+-- | A typclass for things that can be converted to and from FilePaths (Strings).
+-- You would expect `IsString` to work this way, but it only provides half.
+-- And `Show` is problematic too.
+-- TODO is there anything built in that does this properly?
+-- TODO add a join function to avoid unpacking + packing for path conversions?
+-- TODO need a newtype to get around the FilePath being a list thing
 class TreeName a where
   fp2n :: FilePath -> a
   n2fp :: a -> FilePath
@@ -219,7 +224,9 @@ data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
                      deriving (Show, Ord, Eq)
 
 
--- | an element in a FilePath:
+-- | an element in a FilePath.
+-- TODO newtype wrapper here rather than using FlexibleInstances?
+-- https://stackoverflow.com/a/8663534
 type FileName = String
 
 -- TODO what's illegal about this?
@@ -402,7 +409,7 @@ buildL = buildWith' buildLazilyUnsafe' return
 
 
 type UserIO a = FilePath -> IO a
-type Builder n a = TreeName n => UserIO a -> FilePath -> IO (DirTree n a)
+type Builder n a = UserIO a -> FilePath -> IO (DirTree n a)
 
 -- remove non-existent file errors, which are artifacts of the "non-atomic"
 -- nature of traversing a system directory tree:
