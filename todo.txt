@@ -1,7 +1,3 @@
-typeclass idea:
-  make a TreeName class
-  instances need fns:
-    packName (start as fp2n)
-    unpackName (start as n2fp)
-    joinNames? (maybe later, with default to unpack, </>, pack again)
-    showName? (or can that just be unpackName?)
+clean up the TreeName typeclass:
+  rename IsFileName, toFileName, fromFileName?
+  rename joinFileNames, and maybe add an infix version </>
