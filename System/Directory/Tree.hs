@@ -389,7 +389,7 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
 
 
 -- | a simple application of readDirectoryWith openFile:
-openDirectory :: TreeName n => FilePath -> IOMode -> IO (AnchoredDirTree n Handle)
+openDirectory :: FilePath -> IOMode -> IO (AnchoredDirTree FilePath Handle)
 openDirectory p m = readDirectoryWith (flip openFile m) p
 
 
@@ -421,19 +421,19 @@ type Builder n a = UserIO a -> FilePath -> IO (DirTree n a)
 buildWith' :: TreeName n => Builder n a -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 buildWith' bf' f p =
     do tree <- bf' f p
-       return (baseDir p :/ removeNonexistent tree)
+       return (fp2n (baseDir p) :/ removeNonexistent tree)
 
 
 
 -- IO function passed to our builder and finally executed here:
-buildAtOnce' :: Builder n a
+buildAtOnce' :: TreeName n => Builder n a
 buildAtOnce' f p = handleDT n $
            do isFile <- doesFileExist p
               if isFile
                  then  File n <$> f p
                  else do cs <- getDirsFiles p
                          Dir n <$> T.mapM (buildAtOnce' f . combine p) cs
-     where n = topDir p
+     where n = fp2n $ topDir p
 
 
 unsafeMapM :: (a -> IO b) -> [a] -> IO [b]
@@ -447,7 +447,7 @@ unsafeMapM f (x:xs) = unsafeInterleaveIO io
 
 
 -- using unsafeInterleaveIO to get "lazy" traversal:
-buildLazilyUnsafe' :: Builder n a
+buildLazilyUnsafe' :: TreeName n => Builder n a
 buildLazilyUnsafe' f p = handleDT n $
            do isFile <- doesFileExist p
               if isFile
@@ -460,7 +460,7 @@ buildLazilyUnsafe' f p = handleDT n $
 
                      return (Dir n dirTrees)
      where rec = buildLazilyUnsafe' f
-           n = topDir p
+           n = fp2n $ topDir p
 
 
 
@@ -495,7 +495,7 @@ failures = filter failed . flattenDir
 
 
 -- | maps a function to convert Failed DirTrees to Files or Dirs
-failedMap :: (FileName -> IOException -> DirTree n a) -> DirTree n a -> DirTree n a
+failedMap :: TreeName n => (n -> IOException -> DirTree n a) -> DirTree n a -> DirTree n a
 failedMap f = transformDir unFail
     where unFail (Failed n e) = f n e
           unFail c            = c
