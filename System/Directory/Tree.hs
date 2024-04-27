@@ -37,6 +37,7 @@ module System.Directory.Tree (
        -- * Data types for representing directory trees
          DirTree (..)
        , AnchoredDirTree (..)
+       , TreeName (..)
        , FileName
 
 
