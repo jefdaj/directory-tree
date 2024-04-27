@@ -167,18 +167,20 @@ import Control.Applicative
 #endif
 
 -- | A class of file names that can be converted to and from FilePaths (Strings).
+-- Although not enforced, they should never contain path separators.
 -- TODO is there anything built in that does this properly? Not IsString or Show.
 class IsName n where
 
+  -- TODO is this safe without checking for path separators?
   p2n :: FilePath -> n
 
   n2p :: n -> FilePath
 
-  -- TODO is this actually more like append, because the first one could be a path?
-  join :: n -> n -> n
-  join n1 n2 = p2n $ (n2p n1) </> (n2p n2)
+  -- Append a name to a FilePath
+  nappend :: FilePath -> n -> FilePath
+  nappend p n = p </> n2p n
 
--- | the String in the name field is always a file name, never a full path.
+-- | The name field is always a file name, never a full path.
 -- The free type variable is used in the File constructor and can hold Handles,
 -- Strings representing a file's contents or anything else you can think of.
 -- We catch any IO errors in the Failed constructor. an Exception can be
@@ -189,7 +191,7 @@ data DirTree n a = Failed { name :: n,
                             contents :: [DirTree n a] }
                  | File   { name :: n,
                             file :: a               }
-                   deriving Show -- TODO will this work?
+                   deriving Show
 
 
 -- | Two DirTrees are equal if they have the same constructor, the same name
@@ -223,7 +225,9 @@ instance (Ord n, Ord a, Eq n, Eq a) => Ord (DirTree n a) where
 -- absolute or relative path. This lets us give the DirTree n a context, while
 -- still letting us store only directory and file /names/ (not full paths) in
 -- the DirTree. (uses an infix constructor; don't be scared)
-data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
+-- TODO the anchor should be either a full path or a list of names, right?
+-- TODO use Sequence for the anchor lists for efficient append
+data AnchoredDirTree n a = (:/) { anchor :: FilePath, dirTree :: DirTree n a }
                      deriving (Show, Ord, Eq)
 
 
@@ -233,7 +237,7 @@ data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
 type FileName = String
 
 -- TODO does anyone mind that this requires FlexibleInstances?
-instance IsName FilePath where
+instance IsName FileName where
   p2n = id
   n2p = id
 
@@ -367,12 +371,12 @@ writeDirectory = writeDirectoryWith writeFile
 -- become the new `contents` of the returned, where IO errors at each node are
 -- replaced with `Failed` constructors. The returned tree can be compared to
 -- the passed tree to see what operations, if any, failed:
-writeDirectoryWith :: IsName n => (n -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
+writeDirectoryWith :: IsName n => (FilePath -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
-              File n <$> f (join b' n) a
+              File n <$> f (nappend b' n) a
           write' b' (Dir n cs) = handleDT n $
-              do let bas = join b' n
+              do let bas = nappend b' n
                  createDirectoryIfMissing True $ n2p bas
                  Dir n <$> mapM (write' bas) cs
           write' _ (Failed n e) = return $ Failed n e
@@ -571,9 +575,9 @@ free = dirTree
 -- then return that subtree, appending the 'name' of the old root 'Dir' to the
 -- 'anchor' of the AnchoredDirTree wrapper. Otherwise return @Nothing@.
 dropTo :: IsName n => n -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
-dropTo n' (p :/ Dir n ds') = search ds'
+dropTo n' (ns :/ Dir n ds') = search ds'
     where search [] = Nothing
-          search (d:ds) | equalFilePath (n2p n') (n2p $ name d) = Just ((join p n) :/ d)
+          search (d:ds) | equalFilePath (n2p n') (n2p $ name d) = Just (nappend ns n :/ d)
                         | otherwise = search ds
 dropTo _ _ = Nothing
 
@@ -631,10 +635,10 @@ isDirC _ = False
 --
 -- This allows us to, for example, @mapM_ uncurry writeFile@ over a DirTree of
 -- strings, although 'writeDirectory' does a better job of this.
-zipPaths :: IsName n => AnchoredDirTree n a -> DirTree n (n, a)
+zipPaths :: IsName n => AnchoredDirTree n a -> DirTree n (FilePath, a)
 zipPaths (b :/ t) = zipP b t
-    where zipP p (File n a)   = File n (join p n, a)
-          zipP p (Dir n cs)   = Dir n $ map (zipP $ join p n) cs
+    where zipP p (File n a)   = File n (nappend p n, a)
+          zipP p (Dir n cs)   = Dir n $ map (zipP $ nappend p n) cs
           zipP _ (Failed n e) = Failed n e
 
 
