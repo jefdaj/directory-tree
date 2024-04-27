@@ -37,7 +37,7 @@ module System.Directory.Tree (
        -- * Data types for representing directory trees
          DirTree (..)
        , AnchoredDirTree (..)
-       , TreeName (..)
+       , IsName (..)
        , FileName
 
 
@@ -166,20 +166,17 @@ import System.IO.Unsafe(unsafeInterleaveIO)
 import Control.Applicative
 #endif
 
--- | A typclass for things that can be converted to and from FilePaths (Strings).
--- You would expect `IsString` to work this way, but it only provides half.
--- And `Show` is problematic too.
--- TODO is there anything built in that does this properly?
--- TODO add a join function to avoid unpacking + packing for path conversions?
--- TODO need a newtype to get around the FilePath being a list thing
-class TreeName a where
+-- | A class of file names that can be converted to and from FilePaths (Strings).
+-- TODO is there anything built in that does this properly? Not IsString or Show.
+class IsName n where
 
-  fp2n :: FilePath -> a
+  p2n :: FilePath -> n
 
-  n2fp :: a -> FilePath
+  n2p :: n -> FilePath
 
-  join :: a -> a -> a
-  join p n = fp2n $ (n2fp p) </> (n2fp n)
+  -- TODO is this actually more like append, because the first one could be a path?
+  join :: n -> n -> n
+  join n1 n2 = p2n $ (n2p n1) </> (n2p n2)
 
 -- | the String in the name field is always a file name, never a full path.
 -- The free type variable is used in the File constructor and can hold Handles,
@@ -236,9 +233,9 @@ data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
 type FileName = String
 
 -- TODO does anyone mind that this requires FlexibleInstances?
-instance TreeName FilePath where
-  fp2n = id
-  n2fp = id
+instance IsName FilePath where
+  p2n = id
+  n2p = id
 
 instance Functor (DirTree n) where
     fmap = T.fmapDefault
@@ -286,7 +283,7 @@ readDirectory = readDirectoryWith readFile
 -- > readDirectoryWith return "../tmp"
 --
 -- Note though that the 'build' function below already does this.
-readDirectoryWith :: TreeName n => UserIO a -> FilePath -> IO (AnchoredDirTree n a)
+readDirectoryWith :: IsName n => UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 readDirectoryWith f p = buildWith' buildAtOnce' f p
 
 
@@ -298,17 +295,17 @@ readDirectoryWith f p = buildWith' buildAtOnce' f p
 --
 -- * side effects are tied to evaluation order and only run on demand
 -- * you might receive exceptions in pure code
-readDirectoryWithL :: TreeName n => UserIO a -> FilePath -> IO (AnchoredDirTree n a)
+readDirectoryWithL :: IsName n => UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
 
 -- | Generate a string that represents tree command-like output for a
 -- given DirTree.
 -- Instances of Failed will be removed from the tree before it is displayed.
 -- Use showTreeFormatted to apply formatting to the output.
-showTree :: TreeName n => DirTree n a -> String
+showTree :: IsName n => DirTree n a -> String
 showTree tree =
     let treeNoFailed = filterDir notFailed tree
-        nameOnlyF = \x -> n2fp $ name x
+        nameOnlyF = \x -> n2p $ name x
         treeM = showTree' nameOnlyF "" True treeNoFailed
     in fromMaybe "" treeM
         where notFailed (Failed _ _) = False
@@ -370,13 +367,13 @@ writeDirectory = writeDirectoryWith writeFile
 -- become the new `contents` of the returned, where IO errors at each node are
 -- replaced with `Failed` constructors. The returned tree can be compared to
 -- the passed tree to see what operations, if any, failed:
-writeDirectoryWith :: TreeName n => (n -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
+writeDirectoryWith :: IsName n => (n -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
               File n <$> f (join b' n) a
           write' b' (Dir n cs) = handleDT n $
               do let bas = join b' n
-                 createDirectoryIfMissing True $ n2fp bas
+                 createDirectoryIfMissing True $ n2p bas
                  Dir n <$> mapM (write' bas) cs
           write' _ (Failed n e) = return $ Failed n e
 
@@ -400,13 +397,13 @@ openDirectory p m = readDirectoryWith (flip openFile m) p
 -- the base directory in the Anchored* wrapper. Errors are caught in the tree in
 -- the Failed constructor. The 'file' fields initially are populated with full
 -- paths to the files they are abstracting.
-build :: TreeName n => FilePath -> IO (AnchoredDirTree n FilePath)
+build :: IsName n => FilePath -> IO (AnchoredDirTree n FilePath)
 build = buildWith' buildAtOnce' return   -- we say 'return' here to get
                                          -- back a  tree  of  FilePaths
 
 
 -- | identical to `build` but does directory reading IO lazily as needed:
-buildL :: TreeName n => FilePath -> IO (AnchoredDirTree n FilePath)
+buildL :: IsName n => FilePath -> IO (AnchoredDirTree n FilePath)
 buildL = buildWith' buildLazilyUnsafe' return
 
 
@@ -420,22 +417,22 @@ type Builder n a = UserIO a -> FilePath -> IO (DirTree n a)
 
 -- remove non-existent file errors, which are artifacts of the "non-atomic"
 -- nature of traversing a system directory tree:
-buildWith' :: TreeName n => Builder n a -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
+buildWith' :: IsName n => Builder n a -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
 buildWith' bf' f p =
     do tree <- bf' f p
-       return (fp2n (baseDir p) :/ removeNonexistent tree)
+       return (p2n (baseDir p) :/ removeNonexistent tree)
 
 
 
 -- IO function passed to our builder and finally executed here:
-buildAtOnce' :: TreeName n => Builder n a
+buildAtOnce' :: IsName n => Builder n a
 buildAtOnce' f p = handleDT n $
            do isFile <- doesFileExist p
               if isFile
                  then  File n <$> f p
                  else do cs <- getDirsFiles p
                          Dir n <$> T.mapM (buildAtOnce' f . combine p) cs
-     where n = fp2n $ topDir p
+     where n = p2n $ topDir p
 
 
 unsafeMapM :: (a -> IO b) -> [a] -> IO [b]
@@ -449,7 +446,7 @@ unsafeMapM f (x:xs) = unsafeInterleaveIO io
 
 
 -- using unsafeInterleaveIO to get "lazy" traversal:
-buildLazilyUnsafe' :: TreeName n => Builder n a
+buildLazilyUnsafe' :: IsName n => Builder n a
 buildLazilyUnsafe' f p = handleDT n $
            do isFile <- doesFileExist p
               if isFile
@@ -462,7 +459,7 @@ buildLazilyUnsafe' f p = handleDT n $
 
                      return (Dir n dirTrees)
      where rec = buildLazilyUnsafe' f
-           n = fp2n $ topDir p
+           n = p2n $ topDir p
 
 
 
@@ -497,7 +494,7 @@ failures = filter failed . flattenDir
 
 
 -- | maps a function to convert Failed DirTrees to Files or Dirs
-failedMap :: TreeName n => (n -> IOException -> DirTree n a) -> DirTree n a -> DirTree n a
+failedMap :: IsName n => (n -> IOException -> DirTree n a) -> DirTree n a -> DirTree n a
 failedMap f = transformDir unFail
     where unFail (Failed n e) = f n e
           unFail c            = c
@@ -548,7 +545,7 @@ comparingShape t t'  = comparingConstr t t'
 
 
  -- HELPER: a non-recursive comparison
--- TODO should the constraint here be TreeName n?
+-- TODO should the constraint here be IsName n?
 comparingConstr :: (Eq n, Ord n) => DirTree n a -> DirTree n a1 -> Ordering
 comparingConstr (Failed _ _) (Dir _ _)    = LT
 comparingConstr (Failed _ _) (File _ _)   = LT
@@ -573,10 +570,10 @@ free = dirTree
 -- | If the argument is a 'Dir' containing a sub-DirTree matching 'FileName'
 -- then return that subtree, appending the 'name' of the old root 'Dir' to the
 -- 'anchor' of the AnchoredDirTree wrapper. Otherwise return @Nothing@.
-dropTo :: TreeName n => n -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
+dropTo :: IsName n => n -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
 dropTo n' (p :/ Dir n ds') = search ds'
     where search [] = Nothing
-          search (d:ds) | equalFilePath (n2fp n') (n2fp $ name d) = Just ((join p n) :/ d)
+          search (d:ds) | equalFilePath (n2p n') (n2p $ name d) = Just ((join p n) :/ d)
                         | otherwise = search ds
 dropTo _ _ = Nothing
 
@@ -634,7 +631,7 @@ isDirC _ = False
 --
 -- This allows us to, for example, @mapM_ uncurry writeFile@ over a DirTree of
 -- strings, although 'writeDirectory' does a better job of this.
-zipPaths :: TreeName n => AnchoredDirTree n a -> DirTree n (n, a)
+zipPaths :: IsName n => AnchoredDirTree n a -> DirTree n (n, a)
 zipPaths (b :/ t) = zipP b t
     where zipP p (File n a)   = File n (join p n, a)
           zipP p (Dir n cs)   = Dir n $ map (zipP $ join p n) cs
@@ -654,7 +651,7 @@ baseDir = joinPath . init . splitDirectories
 -- | writes the directory structure (not files) of a DirTree to the anchored
 -- directory. Returns a structure identical to the supplied tree with errors
 -- replaced by `Failed` constructors:
-writeJustDirs :: TreeName n => AnchoredDirTree n a -> IO (AnchoredDirTree n a)
+writeJustDirs :: IsName n => AnchoredDirTree n a -> IO (AnchoredDirTree n a)
 writeJustDirs = writeDirectoryWith (const return)
 
 
@@ -674,7 +671,7 @@ getDirsFiles cs = do let cs' = if null cs then "." else cs
 
 -- handles an IO exception by returning a Failed constructor filled with that
 -- exception:
-handleDT :: TreeName n => n -> IO (DirTree n a) -> IO (DirTree n a)
+handleDT :: IsName n => n -> IO (DirTree n a) -> IO (DirTree n a)
 handleDT n = handle (return . Failed n)
 
 
