@@ -83,8 +83,8 @@ module System.Directory.Tree (
        -- * Lenses
        {- | These are compatible with the "lens" library
        -}
-       , _contents, _err, _file, _name
-       , _anchor, _dirTree
+       -- , _contents, _err, _file, _name
+       -- , _anchor, _dirTree
     ) where
 
 
@@ -196,7 +196,7 @@ data DirTree n a = Failed { name :: n,
 
 -- | Two DirTrees are equal if they have the same constructor, the same name
 -- (and in the case of `Dir`s) their sorted `contents` are equal:
-instance (Eq n, Eq a)=> Eq (DirTree n a) where
+instance (Eq n, Ord n, Eq a)=> Eq (DirTree n a) where
     (File n a) == (File n' a') = n == n' && a == a'
     (Dir n cs) == (Dir n' cs') =
         n == n' && sortBy comparingConstr cs == sortBy comparingConstr cs'
