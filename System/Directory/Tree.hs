@@ -377,7 +377,7 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
               File n <$> f (nappend b' n) a
           write' b' (Dir n cs) = handleDT n $
               do let bas = nappend b' n
-                 createDirectoryIfMissing True $ n2p bas
+                 createDirectoryIfMissing True bas
                  Dir n <$> mapM (write' bas) cs
           write' _ (Failed n e) = return $ Failed n e
 
@@ -575,9 +575,9 @@ free = dirTree
 -- then return that subtree, appending the 'name' of the old root 'Dir' to the
 -- 'anchor' of the AnchoredDirTree wrapper. Otherwise return @Nothing@.
 dropTo :: IsName n => n -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
-dropTo n' (ns :/ Dir n ds') = search ds'
+dropTo n' (p :/ Dir n ds') = search ds'
     where search [] = Nothing
-          search (d:ds) | equalFilePath (n2p n') (n2p $ name d) = Just (nappend ns n :/ d)
+          search (d:ds) | equalFilePath (n2p n') (n2p $ name d) = Just (nappend p n :/ d)
                         | otherwise = search ds
 dropTo _ _ = Nothing
 
