@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Main
     where
 
@@ -58,7 +60,7 @@ main = do
 
 
     -- run lazy fold, concating file contents. compare for equality:
-    tL_again <- sortDir </$> readDirectoryWithL readFile testDir
+    (tL_again :: AnchoredDirTree FilePath String) <- sortDir </$> readDirectoryWithL readFile testDir
     let tL_concated = F.concat $ dirTree tL_again
     if tL_concated == "abcdef" then return () else error "foldable broke"
     putStrLn "OK"
@@ -71,9 +73,9 @@ main = do
     putStrLn "\nOK"
 
 
-    let undefinedOrdFailed = Failed undefined undefined :: DirTree Char
-        undefinedOrdDir = Dir undefined undefined :: DirTree Char
-        undefinedOrdFile = File undefined undefined :: DirTree Char
+    let undefinedOrdFailed = Failed undefined undefined :: DirTree FilePath Char
+        undefinedOrdDir = Dir undefined undefined :: DirTree FilePath Char
+        undefinedOrdFile = File undefined undefined :: DirTree FilePath Char
         -- simple equality and sorting
     if Dir "d" [File "b" "b",File "a" "a"] == Dir "d" [File "a" "a", File "b" "b"] &&
         -- recursive sort order, enforces non-recursive sorting of Dirs
@@ -139,7 +141,7 @@ main = do
                       <> "directories, but tree string " <> dirsOnlyTestStr
                       <> "has " <> (show dirsInStringCount)
 
-testTree :: AnchoredDirTree String
+testTree :: AnchoredDirTree FilePath String
 testTree = "" :/ Dir testDir [dA , dB , dC , Failed "FAAAIIILL" undefined]
     where dA = Dir "A" [dA1 , dA2 , Failed "FAIL" undefined]
           dA1    = Dir "A1" [File "A" "a", File "B" "b"]
