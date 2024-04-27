@@ -172,8 +172,13 @@ import Control.Applicative
 -- TODO add a join function to avoid unpacking + packing for path conversions?
 -- TODO need a newtype to get around the FilePath being a list thing
 class TreeName a where
+
   fp2n :: FilePath -> a
+
   n2fp :: a -> FilePath
+
+  join :: a -> a -> a
+  join p n = fp2n $ (n2fp p) </> (n2fp n)
 
 -- | the String in the name field is always a file name, never a full path.
 -- The free type variable is used in the File constructor and can hold Handles,
@@ -229,8 +234,8 @@ data AnchoredDirTree n a = (:/) { anchor :: n, dirTree :: DirTree n a }
 -- https://stackoverflow.com/a/8663534
 type FileName = String
 
--- TODO what's illegal about this?
-instance TreeName String where
+-- TODO does anyone mind that this requires FlexibleInstances?
+instance TreeName FilePath where
   fp2n = id
   n2fp = id
 
@@ -266,7 +271,7 @@ infixl 4 </$>
 -- Uses @readDirectoryWith readFile@ internally and has the effect of traversing the
 -- entire directory structure. See `readDirectoryWithL` for lazy production
 -- of a DirTree structure.
-readDirectory :: TreeName n => FilePath -> IO (AnchoredDirTree n String)
+readDirectory :: FilePath -> IO (AnchoredDirTree FilePath String)
 readDirectory = readDirectoryWith readFile
 
 
@@ -500,16 +505,16 @@ failedMap f = transformDir unFail
 
 
 -- | Recursively sort a directory tree according to the Ord instance
-sortDir :: (Ord a)=> DirTree n a -> DirTree n a
+sortDir :: (Ord n, Ord a)=> DirTree n a -> DirTree n a
 sortDir = sortDirBy compare
 
 -- | Recursively sort a tree as in `sortDir` but ignore the file contents of a
 -- File constructor
-sortDirShape :: DirTree n a -> DirTree n a
+sortDirShape :: (Ord n) => DirTree n a -> DirTree n a
 sortDirShape = sortDirBy comparingShape  where
 
   -- HELPER:
-sortDirBy :: (DirTree n a -> DirTree n a -> Ordering) -> DirTree n a -> DirTree n a
+sortDirBy :: (Ord n) => (DirTree n a -> DirTree n a -> Ordering) -> DirTree n a -> DirTree n a
 sortDirBy cf = transformDir sortD
     where sortD (Dir n cs) = Dir n (sortBy cf cs)
           sortD c          = c
@@ -517,13 +522,13 @@ sortDirBy cf = transformDir sortD
 
 -- | Tests equality of two trees, ignoring their free variable portion. Can be
 -- used to check if any files have been added or deleted, for instance.
-equalShape :: DirTree n a -> DirTree n b -> Bool
+equalShape :: (Eq n, Ord n) => DirTree n a -> DirTree n b -> Bool
 equalShape d d' = comparingShape d d' == EQ
 
 -- TODO: we should use equalFilePath here, but how to sort properly? with System.Directory.canonicalizePath, before compare?
 
 -- | a compare function that ignores the free "file" type variable:
-comparingShape :: DirTree n a -> DirTree n b -> Ordering
+comparingShape :: (Eq n, Ord n) => DirTree n a -> DirTree n b -> Ordering
 comparingShape (Dir n cs) (Dir n' cs') =
     case compare n n' of
          EQ -> comp (sortCs cs) (sortCs cs')
@@ -541,7 +546,8 @@ comparingShape t t'  = comparingConstr t t'
 
 
  -- HELPER: a non-recursive comparison
-comparingConstr :: DirTree n a -> DirTree n a1 -> Ordering
+-- TODO should the constraint here be TreeName n?
+comparingConstr :: (Eq n, Ord n) => DirTree n a -> DirTree n a1 -> Ordering
 comparingConstr (Failed _ _) (Dir _ _)    = LT
 comparingConstr (Failed _ _) (File _ _)   = LT
 comparingConstr (File _ _) (Failed _ _)   = GT
@@ -565,10 +571,10 @@ free = dirTree
 -- | If the argument is a 'Dir' containing a sub-DirTree matching 'FileName'
 -- then return that subtree, appending the 'name' of the old root 'Dir' to the
 -- 'anchor' of the AnchoredDirTree wrapper. Otherwise return @Nothing@.
-dropTo :: FileName -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
+dropTo :: TreeName n => n -> AnchoredDirTree n a -> Maybe (AnchoredDirTree n a)
 dropTo n' (p :/ Dir n ds') = search ds'
     where search [] = Nothing
-          search (d:ds) | equalFilePath n' (name d) = Just ((p</>n) :/ d)
+          search (d:ds) | equalFilePath (n2fp n') (n2fp $ name d) = Just ((join p n) :/ d)
                         | otherwise = search ds
 dropTo _ _ = Nothing
 
@@ -626,10 +632,10 @@ isDirC _ = False
 --
 -- This allows us to, for example, @mapM_ uncurry writeFile@ over a DirTree of
 -- strings, although 'writeDirectory' does a better job of this.
-zipPaths :: AnchoredDirTree n a -> DirTree (FilePath, a)
+zipPaths :: TreeName n => AnchoredDirTree n a -> DirTree n (n, a)
 zipPaths (b :/ t) = zipP b t
-    where zipP p (File n a)   = File n (p</>n , a)
-          zipP p (Dir n cs)   = Dir n $ map (zipP $ p</>n) cs
+    where zipP p (File n a)   = File n (join p n, a)
+          zipP p (Dir n cs)   = Dir n $ map (zipP $ join p n) cs
           zipP _ (Failed n e) = Failed n e
 
 
@@ -646,7 +652,7 @@ baseDir = joinPath . init . splitDirectories
 -- | writes the directory structure (not files) of a DirTree to the anchored
 -- directory. Returns a structure identical to the supplied tree with errors
 -- replaced by `Failed` constructors:
-writeJustDirs :: AnchoredDirTree n a -> IO (AnchoredDirTree n a)
+writeJustDirs :: TreeName n => AnchoredDirTree n a -> IO (AnchoredDirTree n a)
 writeJustDirs = writeDirectoryWith (const return)
 
 
@@ -666,7 +672,7 @@ getDirsFiles cs = do let cs' = if null cs then "." else cs
 
 -- handles an IO exception by returning a Failed constructor filled with that
 -- exception:
-handleDT :: TreeName n => FileName -> IO (DirTree n a) -> IO (DirTree n a)
+handleDT :: TreeName n => n -> IO (DirTree n a) -> IO (DirTree n a)
 handleDT n = handle (return . Failed n)
 
 
@@ -693,68 +699,68 @@ transformDir f t = case f t of
 -- Lenses, generated with TH from "lens" -----------
 -- TODO deprecate these? Pain in the ass to generate, and maybe it's intended
 --      for users to generate their own lenses.
-_contents ::
-            Applicative f =>
-            ([DirTree n a] -> f [DirTree n a]) -> DirTree n a -> f (DirTree n a)
-
-_err ::
-       Applicative f =>
-       (IOException -> f IOException) -> DirTree n a -> f (DirTree n a)
-
-_file ::
-        Applicative f =>
-        (a -> f a) -> DirTree n a -> f (DirTree n a)
-
-_name ::
-        Functor f =>
-        (FileName -> f FileName) -> DirTree n a -> f (DirTree n a)
-
-_anchor ::
-          Functor f =>
-          (FilePath -> f FilePath)
-          -> AnchoredDirTree n a -> f (AnchoredDirTree n a)
-
-_dirTree ::
-           Functor f =>
-           (DirTree t -> f (DirTree n a))
-           -> AnchoredDirTree t -> f (AnchoredDirTree n a)
-
---makeLensesFor [("name","_name"),("err","_err"),("contents","_contents"),("file","_file")] ''DirTree
-_contents _f_a6s2 (Failed _name_a6s3 _err_a6s4)
-  = pure (Failed _name_a6s3 _err_a6s4)
-_contents _f_a6s5 (Dir _name_a6s6 _contents'_a6s7)
-  = ((\ _contents_a6s8 -> Dir _name_a6s6 _contents_a6s8)
-     <$> (_f_a6s5 _contents'_a6s7))
-_contents _f_a6s9 (File _name_a6sa _file_a6sb)
-  = pure (File _name_a6sa _file_a6sb)
-_err _f_a6sd (Failed _name_a6se _err'_a6sf)
-  = ((\ _err_a6sg -> Failed _name_a6se _err_a6sg)
-     <$> (_f_a6sd _err'_a6sf))
-_err _f_a6sh (Dir _name_a6si _contents_a6sj)
-  = pure (Dir _name_a6si _contents_a6sj)
-_err _f_a6sk (File _name_a6sl _file_a6sm)
-  = pure (File _name_a6sl _file_a6sm)
-_file _f_a6so (Failed _name_a6sp _err_a6sq)
-  = pure (Failed _name_a6sp _err_a6sq)
-_file _f_a6sr (Dir _name_a6ss _contents_a6st)
-  = pure (Dir _name_a6ss _contents_a6st)
-_file _f_a6su (File _name_a6sv _file'_a6sw)
-  = ((\ _file_a6sx -> File _name_a6sv _file_a6sx)
-     <$> (_f_a6su _file'_a6sw))
-_name _f_a6sz (Failed _name'_a6sA _err_a6sC)
-  = ((\ _name_a6sB -> Failed _name_a6sB _err_a6sC)
-     <$> (_f_a6sz _name'_a6sA))
-_name _f_a6sD (Dir _name'_a6sE _contents_a6sG)
-  = ((\ _name_a6sF -> Dir _name_a6sF _contents_a6sG)
-     <$> (_f_a6sD _name'_a6sE))
-_name _f_a6sH (File _name'_a6sI _file_a6sK)
-  = ((\ _name_a6sJ -> File _name_a6sJ _file_a6sK)
-     <$> (_f_a6sH _name'_a6sI))
-
---makeLensesFor [("anchor","_anchor"),("dirTree","_dirTree")] ''AnchoredDirTree
-_anchor _f_a7wT (_anchor'_a7wU :/ _dirTree_a7wW)
-  = ((\ _anchor_a7wV -> (:/) _anchor_a7wV _dirTree_a7wW)
-     <$> (_f_a7wT _anchor'_a7wU))
-_dirTree _f_a7wZ (_anchor_a7x0 :/ _dirTree'_a7x1)
-  = ((\ _dirTree_a7x2 -> (:/) _anchor_a7x0 _dirTree_a7x2)
-     <$> (_f_a7wZ _dirTree'_a7x1))
+-- _contents ::
+--             Applicative f =>
+--             ([DirTree n a] -> f [DirTree n a]) -> DirTree n a -> f (DirTree n a)
+-- 
+-- _err ::
+--        Applicative f =>
+--        (IOException -> f IOException) -> DirTree n a -> f (DirTree n a)
+-- 
+-- _file ::
+--         Applicative f =>
+--         (a -> f a) -> DirTree n a -> f (DirTree n a)
+-- 
+-- _name ::
+--         Functor f =>
+--         (FileName -> f FileName) -> DirTree n a -> f (DirTree n a)
+-- 
+-- _anchor ::
+--           Functor f =>
+--           (FilePath -> f FilePath)
+--           -> AnchoredDirTree n a -> f (AnchoredDirTree n a)
+-- 
+-- _dirTree ::
+--            Functor f =>
+--            (DirTree n t -> f (DirTree n a))
+--            -> AnchoredDirTree n t -> f (AnchoredDirTree n a)
+-- 
+-- --makeLensesFor [("name","_name"),("err","_err"),("contents","_contents"),("file","_file")] ''DirTree
+-- _contents _f_a6s2 (Failed _name_a6s3 _err_a6s4)
+--   = pure (Failed _name_a6s3 _err_a6s4)
+-- _contents _f_a6s5 (Dir _name_a6s6 _contents'_a6s7)
+--   = ((\ _contents_a6s8 -> Dir _name_a6s6 _contents_a6s8)
+--      <$> (_f_a6s5 _contents'_a6s7))
+-- _contents _f_a6s9 (File _name_a6sa _file_a6sb)
+--   = pure (File _name_a6sa _file_a6sb)
+-- _err _f_a6sd (Failed _name_a6se _err'_a6sf)
+--   = ((\ _err_a6sg -> Failed _name_a6se _err_a6sg)
+--      <$> (_f_a6sd _err'_a6sf))
+-- _err _f_a6sh (Dir _name_a6si _contents_a6sj)
+--   = pure (Dir _name_a6si _contents_a6sj)
+-- _err _f_a6sk (File _name_a6sl _file_a6sm)
+--   = pure (File _name_a6sl _file_a6sm)
+-- _file _f_a6so (Failed _name_a6sp _err_a6sq)
+--   = pure (Failed _name_a6sp _err_a6sq)
+-- _file _f_a6sr (Dir _name_a6ss _contents_a6st)
+--   = pure (Dir _name_a6ss _contents_a6st)
+-- _file _f_a6su (File _name_a6sv _file'_a6sw)
+--   = ((\ _file_a6sx -> File _name_a6sv _file_a6sx)
+--      <$> (_f_a6su _file'_a6sw))
+-- _name _f_a6sz (Failed _name'_a6sA _err_a6sC)
+--   = ((\ _name_a6sB -> Failed _name_a6sB _err_a6sC)
+--      <$> (_f_a6sz _name'_a6sA))
+-- _name _f_a6sD (Dir _name'_a6sE _contents_a6sG)
+--   = ((\ _name_a6sF -> Dir _name_a6sF _contents_a6sG)
+--      <$> (_f_a6sD _name'_a6sE))
+-- _name _f_a6sH (File _name'_a6sI _file_a6sK)
+--   = ((\ _name_a6sJ -> File _name_a6sJ _file_a6sK)
+--      <$> (_f_a6sH _name'_a6sI))
+-- 
+-- --makeLensesFor [("anchor","_anchor"),("dirTree","_dirTree")] ''AnchoredDirTree
+-- _anchor _f_a7wT (_anchor'_a7wU :/ _dirTree_a7wW)
+--   = ((\ _anchor_a7wV -> (:/) _anchor_a7wV _dirTree_a7wW)
+--      <$> (_f_a7wT _anchor'_a7wU))
+-- _dirTree _f_a7wZ (_anchor_a7x0 :/ _dirTree'_a7x1)
+--   = ((\ _dirTree_a7x2 -> (:/) _anchor_a7x0 _dirTree_a7x2)
+--      <$> (_f_a7wZ _dirTree'_a7x1))
