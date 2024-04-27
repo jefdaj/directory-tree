@@ -359,7 +359,8 @@ showTree' _ _ _ (Failed _ _) = error "Cannot showTree' for Failed"
 -- Doesn't affect files in the directories (if any already exist) with
 -- different names. Returns a new AnchoredDirTree where failures were
 -- lifted into a `Failed` constructor:
-writeDirectory :: TreeName n => AnchoredDirTree n String -> IO (AnchoredDirTree n ())
+-- TODO less specialized version of this?
+writeDirectory :: AnchoredDirTree FilePath String -> IO (AnchoredDirTree FilePath ())
 writeDirectory = writeDirectoryWith writeFile
 
 
@@ -371,10 +372,10 @@ writeDirectory = writeDirectoryWith writeFile
 writeDirectoryWith :: TreeName n => (n -> a -> IO b) -> AnchoredDirTree n a -> IO (AnchoredDirTree n b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
-              File n <$> f ( (n2fp b') </> (n2fp n) ) a
+              File n <$> f (join b' n) a
           write' b' (Dir n cs) = handleDT n $
-              do let bas = b'</>n
-                 createDirectoryIfMissing True bas
+              do let bas = join b' n
+                 createDirectoryIfMissing True $ n2fp bas
                  Dir n <$> mapM (write' bas) cs
           write' _ (Failed n e) = return $ Failed n e
 
