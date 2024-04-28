@@ -77,7 +77,7 @@ source-repository head
 
 library
     exposed-modules: System.Directory.Tree
-    build-depends: base <5, filepath <2, directory <2
+    build-depends: base <5, filepath <2, directory <2, lens, template-haskell
     ghc-options:       -Wall
 
 test-suite test
