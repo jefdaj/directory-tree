@@ -5,55 +5,55 @@ MakeLenses.hs:8:1-99: Splicing declarations
       ''DirTree
   ======>
     _contents ::
-      forall n_i4Uw
-             a_i4Ux. Control.Lens.Type.Traversal' (DirTree n_i4Uw a_i4Ux) [DirTree n_i4Uw a_i4Ux]
-    _contents _ (Failed x1_a4UI x2_a4UJ)
-      = pure (Failed x1_a4UI x2_a4UJ)
-    _contents f_a4UK (Dir x1_a4UL x2_a4UM)
-      = fmap (\ y1_a4UN -> Dir x1_a4UL y1_a4UN) (f_a4UK x2_a4UM)
-    _contents _ (File x1_a4UO x2_a4UP) = pure (File x1_a4UO x2_a4UP)
+      forall n_ib61
+             a_ib62. Control.Lens.Type.Traversal' (DirTree n_ib61 a_ib62) [DirTree n_ib61 a_ib62]
+    _contents _ (Failed x1_ab69 x2_ab6a)
+      = pure (Failed x1_ab69 x2_ab6a)
+    _contents f_ab6b (Dir x1_ab6c x2_ab6d)
+      = fmap (\ y1_ab6e -> Dir x1_ab6c y1_ab6e) (f_ab6b x2_ab6d)
+    _contents _ (File x1_ab6f x2_ab6g) = pure (File x1_ab6f x2_ab6g)
     {-# INLINE _contents #-}
     _err ::
-      forall n_i4Uw
-             a_i4Ux. Control.Lens.Type.Traversal' (DirTree n_i4Uw a_i4Ux) GHC.IO.Exception.IOException
-    _err f_a4UQ (Failed x1_a4UR x2_a4US)
-      = fmap (\ y1_a4UT -> Failed x1_a4UR y1_a4UT) (f_a4UQ x2_a4US)
-    _err _ (Dir x1_a4UU x2_a4UV) = pure (Dir x1_a4UU x2_a4UV)
-    _err _ (File x1_a4UW x2_a4UX) = pure (File x1_a4UW x2_a4UX)
+      forall n_ib61
+             a_ib62. Control.Lens.Type.Traversal' (DirTree n_ib61 a_ib62) GHC.IO.Exception.IOException
+    _err f_ab6h (Failed x1_ab6i x2_ab6j)
+      = fmap (\ y1_ab6k -> Failed x1_ab6i y1_ab6k) (f_ab6h x2_ab6j)
+    _err _ (Dir x1_ab6l x2_ab6m) = pure (Dir x1_ab6l x2_ab6m)
+    _err _ (File x1_ab6n x2_ab6o) = pure (File x1_ab6n x2_ab6o)
     {-# INLINE _err #-}
     _file ::
-      forall n_i4Uw
-             a_i4Ux. Control.Lens.Type.Traversal' (DirTree n_i4Uw a_i4Ux) a_i4Ux
-    _file _ (Failed x1_a4UY x2_a4UZ) = pure (Failed x1_a4UY x2_a4UZ)
-    _file _ (Dir x1_a4V0 x2_a4V1) = pure (Dir x1_a4V0 x2_a4V1)
-    _file f_a4V2 (File x1_a4V3 x2_a4V4)
-      = fmap (\ y1_a4V5 -> File x1_a4V3 y1_a4V5) (f_a4V2 x2_a4V4)
+      forall n_ib61
+             a_ib62. Control.Lens.Type.Traversal' (DirTree n_ib61 a_ib62) a_ib62
+    _file _ (Failed x1_ab6p x2_ab6q) = pure (Failed x1_ab6p x2_ab6q)
+    _file _ (Dir x1_ab6r x2_ab6s) = pure (Dir x1_ab6r x2_ab6s)
+    _file f_ab6t (File x1_ab6u x2_ab6v)
+      = fmap (\ y1_ab6w -> File x1_ab6u y1_ab6w) (f_ab6t x2_ab6v)
     {-# INLINE _file #-}
     _name ::
-      forall n_i4Uw
-             a_i4Ux. Control.Lens.Type.Lens' (DirTree n_i4Uw a_i4Ux) n_i4Uw
-    _name f_a4V6 (Failed x1_a4V7 x2_a4V8)
-      = fmap (\ y1_a4V9 -> Failed y1_a4V9 x2_a4V8) (f_a4V6 x1_a4V7)
-    _name f_a4Va (Dir x1_a4Vb x2_a4Vc)
-      = fmap (\ y1_a4Vd -> Dir y1_a4Vd x2_a4Vc) (f_a4Va x1_a4Vb)
-    _name f_a4Ve (File x1_a4Vf x2_a4Vg)
-      = fmap (\ y1_a4Vh -> File y1_a4Vh x2_a4Vg) (f_a4Ve x1_a4Vf)
+      forall n_ib61
+             a_ib62. Control.Lens.Type.Lens' (DirTree n_ib61 a_ib62) n_ib61
+    _name f_ab6x (Failed x1_ab6y x2_ab6z)
+      = fmap (\ y1_ab6A -> Failed y1_ab6A x2_ab6z) (f_ab6x x1_ab6y)
+    _name f_ab6B (Dir x1_ab6C x2_ab6D)
+      = fmap (\ y1_ab6E -> Dir y1_ab6E x2_ab6D) (f_ab6B x1_ab6C)
+    _name f_ab6F (File x1_ab6G x2_ab6H)
+      = fmap (\ y1_ab6I -> File y1_ab6I x2_ab6H) (f_ab6F x1_ab6G)
     {-# INLINE _name #-}
 MakeLenses.hs:9:1-77: Splicing declarations
     makeLensesFor
       [("anchor", "_anchor"), ("dirTree", "_dirTree")] ''AnchoredDirTree
   ======>
     _anchor ::
-      forall n_i4X8
-             a_i4X9. Control.Lens.Type.Lens' (AnchoredDirTree n_i4X8 a_i4X9) FilePath
-    _anchor f_a51j ((:/) x1_a51k x2_a51l)
-      = fmap (\ y1_a51m -> (:/) y1_a51m x2_a51l) (f_a51j x1_a51k)
+      forall n_ib87
+             a_ib88. Control.Lens.Type.Lens' (AnchoredDirTree n_ib87 a_ib88) FilePath
+    _anchor f_abc6 ((:/) x1_abc7 x2_abc8)
+      = fmap (\ y1_abc9 -> (:/) y1_abc9 x2_abc8) (f_abc6 x1_abc7)
     {-# INLINE _anchor #-}
     _dirTree ::
-      forall n_i4X8
-             a_i4X9
-             n_a51h
-             a_a51i. Control.Lens.Type.Lens (AnchoredDirTree n_i4X8 a_i4X9) (AnchoredDirTree n_a51h a_a51i) (DirTree n_i4X8 a_i4X9) (DirTree n_a51h a_a51i)
-    _dirTree f_a51n ((:/) x1_a51o x2_a51p)
-      = fmap (\ y1_a51q -> (:/) x1_a51o y1_a51q) (f_a51n x2_a51p)
+      forall n_ib87
+             a_ib88
+             n_abc4
+             a_abc5. Control.Lens.Type.Lens (AnchoredDirTree n_ib87 a_ib88) (AnchoredDirTree n_abc4 a_abc5) (DirTree n_ib87 a_ib88) (DirTree n_abc4 a_abc5)
+    _dirTree f_abca ((:/) x1_abcb x2_abcc)
+      = fmap (\ y1_abcd -> (:/) x1_abcb y1_abcd) (f_abca x2_abcc)
     {-# INLINE _dirTree #-}
