@@ -37,7 +37,7 @@ main = do
     putStrLn "OK"
 
     -- make file farthest to the right unreadable:
-    (Dir _ [_,_,Dir "C" [_,_,File "G" p_unreadable]]) <- sortDir . dirTree <$> build testDir
+    (Dir _ [_,_,Dir "C" [_,_,File "G" p_unreadable]]) <- sortDir . dirTree <$> build True testDir
     setPermissions p_unreadable emptyPermissions{readable   = False,
                                                    writable   = True,
                                                    executable = True,
@@ -47,8 +47,8 @@ main = do
 
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
-    tL <- readDirectoryWithL readFile testDir
-    t@(_:/Dir _ [_,_,Dir "C" [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
+    tL <- readDirectoryWithL True readFile testDir
+    t@(_:/Dir _ [_,_,Dir "C" [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory True testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
 
@@ -60,7 +60,7 @@ main = do
 
 
     -- run lazy fold, concating file contents. compare for equality:
-    (tL_again :: AnchoredDirTree FilePath String) <- sortDir </$> readDirectoryWithL readFile testDir
+    (tL_again :: AnchoredDirTree FilePath String) <- sortDir </$> readDirectoryWithL True readFile testDir
     let tL_concated = F.concat $ dirTree tL_again
     if tL_concated == "abcdef" then return () else error "foldable broke"
     putStrLn "OK"
@@ -69,7 +69,7 @@ main = do
     putStrLn "-- If lazy IO is not working, we should be stalled right now "
     putStrLn "-- as we try to read in the whole root directory tree."
     putStrLn "-- Go ahead and press CTRL-C if you've read this far"
-    mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL readFile "/"
+    mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL True readFile "/"
     putStrLn "\nOK"
 
 
