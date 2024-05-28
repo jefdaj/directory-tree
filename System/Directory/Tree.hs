@@ -297,8 +297,8 @@ readDirectoryWith followLinks f p = buildWith' (buildAtOnce' followLinks) f p
 --
 -- * side effects are tied to evaluation order and only run on demand
 -- * you might receive exceptions in pure code
-readDirectoryWithL :: IsName n => UserIO a -> FilePath -> IO (AnchoredDirTree n a)
-readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
+readDirectoryWithL :: IsName n => Bool -> UserIO a -> FilePath -> IO (AnchoredDirTree n a)
+readDirectoryWithL followLinks f p = buildWith' (buildLazilyUnsafe' followLinks) f p
 
 -- | Generate a string that represents tree command-like output for a
 -- given DirTree.
@@ -408,8 +408,8 @@ build followLinks = buildWith'
 
 
 -- | identical to `build` but does directory reading IO lazily as needed:
-buildL :: IsName n => FilePath -> IO (AnchoredDirTree n FilePath)
-buildL = buildWith' buildLazilyUnsafe' return
+buildL :: IsName n => Bool -> FilePath -> IO (AnchoredDirTree n FilePath)
+buildL followLinks = buildWith' (buildLazilyUnsafe' followLinks) return
 
 
 
@@ -452,10 +452,11 @@ unsafeMapM f (x:xs) = unsafeInterleaveIO io
 
 
 -- using unsafeInterleaveIO to get "lazy" traversal:
-buildLazilyUnsafe' :: IsName n => Builder n a
-buildLazilyUnsafe' f p = handleDT n $
+buildLazilyUnsafe' :: IsName n => Bool -> Builder n a
+buildLazilyUnsafe' followLinks f p = handleDT n $
            do isFile <- doesFileExist p
-              if isFile
+              isLink <- pathIsSymbolicLink p
+              if isFile || (isLink && not followLinks)
                  then  File n <$> f p
                  else do
                      files <- getDirsFiles p
@@ -464,7 +465,7 @@ buildLazilyUnsafe' f p = handleDT n $
                      dirTrees <- unsafeMapM (rec . combine p) files
 
                      return (Dir n dirTrees)
-     where rec = buildLazilyUnsafe' f
+     where rec = buildLazilyUnsafe' followLinks f
            n = p2n $ topDir p
 
 
