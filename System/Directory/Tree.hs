@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP               #-}
+{-# LANGUAGE QuasiQuotes       #-}
 --------------------------------------------------------------------
 -- |
 -- Module    : System.Directory.Tree
@@ -51,7 +52,7 @@ module System.Directory.Tree (
        , buildL
        , openDirectory
        , writeJustDirs
-       -- ** Manipulating FilePaths
+       -- ** Manipulating OsPaths
        , zipPaths
        , free
 
@@ -144,9 +145,10 @@ CHANGES:
             zipper usage!
 -}
 
-import System.Directory
-import System.FilePath
-import System.IO
+import System.Directory.OsPath
+import System.OsPath
+import System.File.OsPath
+import System.IO (IOMode(..), Handle, utf8)
 import Control.Exception (handle, IOException)
 import System.IO.Error(ioeGetErrorType,isDoesNotExistErrorType)
 
@@ -159,6 +161,10 @@ import qualified Data.Foldable as F
 
  -- exported functions affected: `buildL`, `readDirectoryWithL`
 import System.IO.Unsafe(unsafeInterleaveIO)
+
+import qualified Data.ByteString.Lazy as BL
+import Prelude hiding (readFile, writeFile)
+import Data.Either (fromRight)
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
@@ -209,12 +215,12 @@ instance (Ord a,Eq a) => Ord (DirTree a) where
 -- absolute or relative path. This lets us give the DirTree a context, while
 -- still letting us store only directory and file /names/ (not full paths) in
 -- the DirTree. (uses an infix constructor; don't be scared)
-data AnchoredDirTree a = (:/) { anchor :: FilePath, dirTree :: DirTree a }
+data AnchoredDirTree a = (:/) { anchor :: OsPath, dirTree :: DirTree a }
                      deriving (Show, Ord, Eq)
 
 
--- | an element in a FilePath:
-type FileName = String
+-- | an element in a OsPath:
+type FileName = OsPath
 
 
 instance Functor DirTree where
@@ -249,21 +255,21 @@ infixl 4 </$>
 -- Uses @readDirectoryWith readFile@ internally and has the effect of traversing the
 -- entire directory structure. See `readDirectoryWithL` for lazy production
 -- of a DirTree structure.
-readDirectory :: FilePath -> IO (AnchoredDirTree String)
+readDirectory :: OsPath -> IO (AnchoredDirTree BL.ByteString)
 readDirectory = readDirectoryWith readFile
 
 
 -- | Build a 'DirTree' rooted at @p@ and using @f@ to fill the 'file' field of 'File' nodes.
 --
--- The 'FilePath' arguments to @f@ will be the full path to the current file, and
+-- The 'OsPath' arguments to @f@ will be the full path to the current file, and
 -- will include the root @p@ as a prefix.
--- For example, the following would return a tree of full 'FilePath's
+-- For example, the following would return a tree of full 'OsPath's
 -- like \"..\/tmp\/foo\" and \"..\/tmp\/bar\/baz\":
 --
 -- > readDirectoryWith return "../tmp"
 --
 -- Note though that the 'build' function below already does this.
-readDirectoryWith :: (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
+readDirectoryWith :: (OsPath -> IO a) -> OsPath -> IO (AnchoredDirTree a)
 readDirectoryWith f p = buildWith' buildAtOnce' f p
 
 
@@ -275,8 +281,13 @@ readDirectoryWith f p = buildWith' buildAtOnce' f p
 --
 -- * side effects are tied to evaluation order and only run on demand
 -- * you might receive exceptions in pure code
-readDirectoryWithL :: (FilePath -> IO a) -> FilePath -> IO (AnchoredDirTree a)
+readDirectoryWithL :: (OsPath -> IO a) -> OsPath -> IO (AnchoredDirTree a)
 readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
+
+nameOnlyF :: DirTree a -> String
+nameOnlyF x = case decodeWith utf8 utf8 $ name x of
+  Left msg -> "Error decoding name as UTF-8: " ++ show msg
+  Right s -> s
 
 -- | Generate a string that represents tree command-like output for a
 -- given DirTree.
@@ -285,7 +296,6 @@ readDirectoryWithL f p = buildWith' buildLazilyUnsafe' f p
 showTree :: DirTree a -> String
 showTree tree =
     let treeNoFailed = filterDir notFailed tree
-        nameOnlyF = \x -> name x
         treeM = showTree' nameOnlyF "" True treeNoFailed
     in fromMaybe "" treeM
         where notFailed (Failed _ _) = False
@@ -337,7 +347,7 @@ showTree' _ _ _ (Failed _ _) = error "Cannot showTree' for Failed"
 -- Doesn't affect files in the directories (if any already exist) with
 -- different names. Returns a new AnchoredDirTree where failures were
 -- lifted into a `Failed` constructor:
-writeDirectory :: AnchoredDirTree String -> IO (AnchoredDirTree ())
+writeDirectory :: AnchoredDirTree BL.ByteString -> IO (AnchoredDirTree ())
 writeDirectory = writeDirectoryWith writeFile
 
 
@@ -346,7 +356,7 @@ writeDirectory = writeDirectoryWith writeFile
 -- become the new `contents` of the returned, where IO errors at each node are
 -- replaced with `Failed` constructors. The returned tree can be compared to
 -- the passed tree to see what operations, if any, failed:
-writeDirectoryWith :: (FilePath -> a -> IO b) -> AnchoredDirTree a -> IO (AnchoredDirTree b)
+writeDirectoryWith :: (OsPath -> a -> IO b) -> AnchoredDirTree a -> IO (AnchoredDirTree b)
 writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
     where write' b' (File n a) = handleDT n $
               File n <$> f (b'</>n) a
@@ -367,7 +377,7 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
 
 
 -- | a simple application of readDirectoryWith openFile:
-openDirectory :: FilePath -> IOMode -> IO (AnchoredDirTree Handle)
+openDirectory :: OsPath -> IOMode -> IO (AnchoredDirTree Handle)
 openDirectory p m = readDirectoryWith (flip openFile m) p
 
 
@@ -376,13 +386,13 @@ openDirectory p m = readDirectoryWith (flip openFile m) p
 -- the base directory in the Anchored* wrapper. Errors are caught in the tree in
 -- the Failed constructor. The 'file' fields initially are populated with full
 -- paths to the files they are abstracting.
-build :: FilePath -> IO (AnchoredDirTree FilePath)
+build :: OsPath -> IO (AnchoredDirTree OsPath)
 build = buildWith' buildAtOnce' return   -- we say 'return' here to get
-                                         -- back a  tree  of  FilePaths
+                                         -- back a  tree  of  OsPaths
 
 
 -- | identical to `build` but does directory reading IO lazily as needed:
-buildL :: FilePath -> IO (AnchoredDirTree FilePath)
+buildL :: OsPath -> IO (AnchoredDirTree OsPath)
 buildL = buildWith' buildLazilyUnsafe' return
 
 
@@ -391,12 +401,12 @@ buildL = buildWith' buildLazilyUnsafe' return
     -- -- -- helpers: -- -- --
 
 
-type UserIO a = FilePath -> IO a
-type Builder a = UserIO a -> FilePath -> IO (DirTree a)
+type UserIO a = OsPath -> IO a
+type Builder a = UserIO a -> OsPath -> IO (DirTree a)
 
 -- remove non-existent file errors, which are artifacts of the "non-atomic"
 -- nature of traversing a system directory tree:
-buildWith' :: Builder a -> UserIO a -> FilePath -> IO (AnchoredDirTree a)
+buildWith' :: Builder a -> UserIO a -> OsPath -> IO (AnchoredDirTree a)
 buildWith' bf' f p =
     do tree <- bf' f p
        return (baseDir p :/ removeNonexistent tree)
@@ -609,7 +619,7 @@ isDirC _ = False
 --
 -- This allows us to, for example, @mapM_ uncurry writeFile@ over a DirTree of
 -- strings, although 'writeDirectory' does a better job of this.
-zipPaths :: AnchoredDirTree a -> DirTree (FilePath, a)
+zipPaths :: AnchoredDirTree a -> DirTree (OsPath, a)
 zipPaths (b :/ t) = zipP b t
     where zipP p (File n a)   = File n (p</>n , a)
           zipP p (Dir n cs)   = Dir n $ map (zipP $ p</>n) cs
@@ -617,7 +627,7 @@ zipPaths (b :/ t) = zipP b t
 
 
 -- extracting pathnames and base names:
-topDir, baseDir :: FilePath -> FilePath
+topDir, baseDir :: OsPath -> OsPath
 topDir = last . splitDirectories
 baseDir = joinPath . init . splitDirectories
 
@@ -637,10 +647,10 @@ writeJustDirs = writeDirectoryWith (const return)
 ----- and getDirectoryContents fails epically on ""
 -- prepares the directory contents list. we sort so that we can be sure of
 -- a consistent fold/traversal order on the same directory:
-getDirsFiles :: String -> IO [FilePath]
-getDirsFiles cs = do let cs' = if null cs then "." else cs
-                     dfs <- getDirectoryContents cs'
-                     return $ dfs \\ [".",".."]
+-- TODO does OsPath fix it?
+getDirsFiles :: OsPath -> IO [OsPath]
+getDirsFiles cs = do dfs <- getDirectoryContents cs
+                     return $ dfs \\ [[osp|.|],[osp|..|]]
 
 
 
@@ -694,7 +704,7 @@ _name ::
 
 _anchor ::
           Functor f =>
-          (FilePath -> f FilePath)
+          (OsPath -> f OsPath)
           -> AnchoredDirTree a -> f (AnchoredDirTree a)
 
 _dirTree ::
