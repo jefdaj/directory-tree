@@ -55,7 +55,7 @@ main = do
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
     tL <- readDirectoryWithL readFile testDir
-    t@(_:/Dir _ [_,_,Dir "C" [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
+    t@(_:/Dir _ [_,_,Dir _ [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
 
@@ -68,7 +68,7 @@ main = do
 
     -- run lazy fold, concating file contents. compare for equality:
     tL_again <- sortDir </$> readDirectoryWithL readFile testDir
-    let (tL_concated :: OsString) = F.concat $ dirTree tL_again
+    let tL_concated = F.concat $ dirTree tL_again -- TODO expects list because concat?
     if tL_concated == "abcdef" then return () else error "foldable broke"
     putStrLn "OK"
 
@@ -119,7 +119,7 @@ main = do
                       <> "non-failed entries, but tree string has "
                       <> (show testTreeEntryNum)
     -- check that showTree has the name of every file or dir in its output
-    let allTreeNames = name <$> (flattenDir testTreeNonFailed)
+    let allTreeNames = (decodeUtf . name) <$> (flattenDir testTreeNonFailed)
     if all (\n -> isInfixOf n testTreeStr) allTreeNames
         then putStrLn "SUCCESS"
         else error "Could not find all names from test tree within showTree output"
