@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
+
 module Main
     where
 
@@ -6,17 +9,22 @@ module Main
 import System.Directory.Tree
 import Control.Applicative
 import qualified Data.Foldable as F
-import System.Directory
+-- import System.Directory
 import System.Process
 import System.IO.Error(ioeGetErrorType,isPermissionErrorType)
 import Control.Monad(void)
 import Data.List(isInfixOf)
 
+import System.Directory.OsPath
+import System.OsPath
+import System.File.OsPath
+import System.IO (IOMode(..), Handle, utf8)
+import Prelude hiding (readFile, writeFile)
+import qualified Data.ByteString.Lazy as BL
 
 
-
-testDir :: FilePath
-testDir = "/tmp/TESTDIR-LKJHBAE"
+testDir :: OsPath
+testDir = [osp|/tmp/TESTDIR-LKJHBAE|]
 
 main :: IO ()
 main = do
@@ -35,7 +43,7 @@ main = do
     putStrLn "OK"
 
     -- make file farthest to the right unreadable:
-    (Dir _ [_,_,Dir "C" [_,_,File "G" p_unreadable]]) <- sortDir . dirTree <$> build testDir
+    (Dir _ [_,_,Dir [osp|C|] [_,_,File [osp|G|] p_unreadable]]) <- sortDir . dirTree <$> build testDir
     setPermissions p_unreadable emptyPermissions{readable   = False,
                                                    writable   = True,
                                                    executable = True,
@@ -46,7 +54,7 @@ main = do
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
     tL <- readDirectoryWithL readFile testDir
-    t@(_:/Dir _ [_,_,Dir "C" [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
+    t@(_:/Dir _ [_,_,Dir [osp|C|] [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
 
@@ -60,14 +68,14 @@ main = do
     -- run lazy fold, concating file contents. compare for equality:
     tL_again <- sortDir </$> readDirectoryWithL readFile testDir
     let tL_concated = F.concat $ dirTree tL_again
-    if tL_concated == "abcdef" then return () else error "foldable broke"
+    if tL_concated == (BL.pack [osp|abcdef|]) then return () else error "foldable broke"
     putStrLn "OK"
 
      -- get a lazy DirTree at root directory with lazy Directory traversal:
-    putStrLn "-- If lazy IO is not working, we should be stalled right now "
+    putStrLn "-- If lazy IO is not working, we should be stalled right now"
     putStrLn "-- as we try to read in the whole root directory tree."
     putStrLn "-- Go ahead and press CTRL-C if you've read this far"
-    mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL readFile "/"
+    mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL readFile [osp|/|]
     putStrLn "\nOK"
 
 
@@ -75,20 +83,20 @@ main = do
         undefinedOrdDir = Dir undefined undefined :: DirTree Char
         undefinedOrdFile = File undefined undefined :: DirTree Char
         -- simple equality and sorting
-    if Dir "d" [File "b" "b",File "a" "a"] == Dir "d" [File "a" "a", File "b" "b"] &&
+    if Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] == Dir [osp|d|] [File [osp|a|] [osp|a|], File [osp|b|] [osp|b|]] &&
         -- recursive sort order, enforces non-recursive sorting of Dirs
-       Dir "d" [Dir "b" undefined,File "a" "a"] /= Dir "d" [File "a" "a", Dir "c" undefined] &&
+       Dir [osp|d|] [Dir [osp|b|] undefined,File [osp|a|] [osp|a|]] /= Dir [osp|d|] [File [osp|a|] [osp|a|], Dir [osp|c|] undefined] &&
         -- check ordering of constructors:
        undefinedOrdFailed < undefinedOrdDir  &&
        undefinedOrdDir < undefinedOrdFile    &&
         -- check ordering by dir contents list length:
-       Dir "d" [File "b" "b",File "a" "a"] > Dir "d" [File "a" "a"] &&
+       Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] > Dir [osp|d|] [File [osp|a|] [osp|a|]] &&
         -- recursive ordering on contents:
-       Dir "d" [File "b" "b", Dir "c" [File "a" "b"]] > Dir "d" [File "b" "b", Dir "c" [File "a" "a"]]
+       Dir [osp|d|] [File [osp|b|] [osp|b|], Dir [osp|c|] [File [osp|a|] [osp|b|]]] > Dir [osp|d|] [File [osp|b|] [osp|b|], Dir [osp|c|] [File [osp|a|] [osp|a|]]]
         then putStrLn "OK"
         else error "Ord/Eq instance is messed up"
 
-    if Dir "d" [File "b" "b",File "a" "a"] `equalShape` Dir "d" [File "a" undefined, File "b" undefined]
+    if Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] `equalShape` Dir [osp|d|] [File [osp|a|] undefined, File [osp|b|] undefined]
         then putStrLn "OK"
         else error "equalShape or comparinghape functions broken"
 
@@ -126,24 +134,24 @@ main = do
     -- Have all dirs format to just "DIR" and check that we have the right number
     -- in the string
     let dirsOnlyTestStr = showTreeFormatted dirF $ dirTree testTree
-                            where dirF (Dir _ _) = "DIR"
+                            where dirF (Dir _ _) = [osp|DIR|]
                                   dirF x = name x
     let testTreeDirsOnly = filterDir isDir (dirTree testTree)
                             where isDir (Dir _ _) = True
                                   isDir _ = False
     let testTreeDirsOnlyEntryNum = length $ flattenDir testTreeDirsOnly
-    let dirsInStringCount = length $ filter (isInfixOf "DIR") (words dirsOnlyTestStr)
+    let dirsInStringCount = length $ filter (isInfixOf [osp|DIR|]) (words dirsOnlyTestStr)
     if dirsInStringCount == testTreeDirsOnlyEntryNum
         then putStrLn "SUCCESS"
         else error $ "Test tree has " <> (show testTreeDirsOnlyEntryNum)
                       <> "directories, but tree string " <> dirsOnlyTestStr
                       <> "has " <> (show dirsInStringCount)
 
-testTree :: AnchoredDirTree String
-testTree = "" :/ Dir testDir [dA , dB , dC , Failed "FAAAIIILL" undefined]
-    where dA = Dir "A" [dA1 , dA2 , Failed "FAIL" undefined]
-          dA1    = Dir "A1" [File "A" "a", File "B" "b"]
-          dA2    = Dir "A2" [File "C" "c"]
-          dB = Dir "B" [File "D" "d"]
-          dC = Dir "C" [File "E" "e", File "F" "f", File "G" "g"]
+testTree :: AnchoredDirTree BL.ByteString
+testTree = [osp|""|] :/ Dir testDir [dA , dB , dC , Failed [osp|FAAAIIILL|] undefined]
+    where dA = Dir [osp|A|] [dA1 , dA2 , Failed [osp|FAIL|] undefined]
+          dA1    = Dir [osp|A1|] [File [osp|A|] [osp|a|], File [osp|B|] [osp|b|]]
+          dA2    = Dir [osp|A2|] [File [osp|C|] [osp|c|]]
+          dB = Dir [osp|B|] [File [osp|D|] [osp|d|]]
+          dC = Dir [osp|C|] [File [osp|E|] [osp|e|], File [osp|F|] [osp|f|], File [osp|G|] [osp|g|]]
 
