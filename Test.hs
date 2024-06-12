@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main
     where
@@ -43,7 +44,7 @@ main = do
     putStrLn "OK"
 
     -- make file farthest to the right unreadable:
-    (Dir _ [_,_,Dir [osp|C|] [_,_,File [osp|G|] p_unreadable]]) <- sortDir . dirTree <$> build testDir
+    (Dir _ [_,_,Dir "C" [_,_,File "G" p_unreadable]]) <- sortDir . dirTree <$> build testDir
     setPermissions p_unreadable emptyPermissions{readable   = False,
                                                    writable   = True,
                                                    executable = True,
@@ -54,7 +55,7 @@ main = do
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
     tL <- readDirectoryWithL readFile testDir
-    t@(_:/Dir _ [_,_,Dir [osp|C|] [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
+    t@(_:/Dir _ [_,_,Dir "C" [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
 
@@ -67,8 +68,8 @@ main = do
 
     -- run lazy fold, concating file contents. compare for equality:
     tL_again <- sortDir </$> readDirectoryWithL readFile testDir
-    let tL_concated = F.concat $ dirTree tL_again
-    if tL_concated == (BL.pack [osp|abcdef|]) then return () else error "foldable broke"
+    let (tL_concated :: OsString) = F.concat $ dirTree tL_again
+    if tL_concated == "abcdef" then return () else error "foldable broke"
     putStrLn "OK"
 
      -- get a lazy DirTree at root directory with lazy Directory traversal:
@@ -90,13 +91,13 @@ main = do
        undefinedOrdFailed < undefinedOrdDir  &&
        undefinedOrdDir < undefinedOrdFile    &&
         -- check ordering by dir contents list length:
-       Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] > Dir [osp|d|] [File [osp|a|] [osp|a|]] &&
+       Dir "d" [File "b" "b",File "a" "a"] > Dir "d" [File "a" "a"] &&
         -- recursive ordering on contents:
-       Dir [osp|d|] [File [osp|b|] [osp|b|], Dir [osp|c|] [File [osp|a|] [osp|b|]]] > Dir [osp|d|] [File [osp|b|] [osp|b|], Dir [osp|c|] [File [osp|a|] [osp|a|]]]
+       Dir "d" [File "b" "b", Dir "c" [File "a" "b"]] > Dir "d" [File "b" "b", Dir "c" [File "a" "a"]]
         then putStrLn "OK"
         else error "Ord/Eq instance is messed up"
 
-    if Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] `equalShape` Dir [osp|d|] [File [osp|a|] undefined, File [osp|b|] undefined]
+    if Dir "d" [File "b" "b",File "a" "a"] `equalShape` Dir "d" [File "a" undefined, File "b" undefined]
         then putStrLn "OK"
         else error "equalShape or comparinghape functions broken"
 
@@ -134,13 +135,13 @@ main = do
     -- Have all dirs format to just "DIR" and check that we have the right number
     -- in the string
     let dirsOnlyTestStr = showTreeFormatted dirF $ dirTree testTree
-                            where dirF (Dir _ _) = [osp|DIR|]
+                            where dirF (Dir _ _) = "DIR"
                                   dirF x = name x
     let testTreeDirsOnly = filterDir isDir (dirTree testTree)
                             where isDir (Dir _ _) = True
                                   isDir _ = False
     let testTreeDirsOnlyEntryNum = length $ flattenDir testTreeDirsOnly
-    let dirsInStringCount = length $ filter (isInfixOf [osp|DIR|]) (words dirsOnlyTestStr)
+    let dirsInStringCount = length $ filter (isInfixOf "DIR") (words dirsOnlyTestStr)
     if dirsInStringCount == testTreeDirsOnlyEntryNum
         then putStrLn "SUCCESS"
         else error $ "Test tree has " <> (show testTreeDirsOnlyEntryNum)
@@ -148,10 +149,10 @@ main = do
                       <> "has " <> (show dirsInStringCount)
 
 testTree :: AnchoredDirTree BL.ByteString
-testTree = [osp|""|] :/ Dir testDir [dA , dB , dC , Failed [osp|FAAAIIILL|] undefined]
-    where dA = Dir [osp|A|] [dA1 , dA2 , Failed [osp|FAIL|] undefined]
-          dA1    = Dir [osp|A1|] [File [osp|A|] [osp|a|], File [osp|B|] [osp|b|]]
-          dA2    = Dir [osp|A2|] [File [osp|C|] [osp|c|]]
-          dB = Dir [osp|B|] [File [osp|D|] [osp|d|]]
-          dC = Dir [osp|C|] [File [osp|E|] [osp|e|], File [osp|F|] [osp|f|], File [osp|G|] [osp|g|]]
+testTree = """" :/ Dir testDir [dA , dB , dC , Failed "FAAAIIILL" undefined]
+    where dA = Dir "A" [dA1 , dA2 , Failed "FAIL" undefined]
+          dA1    = Dir "A1" [File "A" "a", File "B" "b"]
+          dA2    = Dir "A2" [File "C" "c"]
+          dB = Dir "B" [File "D" "d"]
+          dC = Dir "C" [File "E" "e", File "F" "f", File "G" "g"]
 

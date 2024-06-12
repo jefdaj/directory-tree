@@ -219,7 +219,7 @@ data AnchoredDirTree a = (:/) { anchor :: OsPath, dirTree :: DirTree a }
                      deriving (Show, Ord, Eq)
 
 
--- | an element in a OsPath:
+-- | an element in an OsPath:
 type FileName = OsPath
 
 
