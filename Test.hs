@@ -84,16 +84,16 @@ main = do
         undefinedOrdDir = Dir undefined undefined :: DirTree Char
         undefinedOrdFile = File undefined undefined :: DirTree Char
         -- simple equality and sorting
-    if Dir [osp|d|] [File [osp|b|] [osp|b|],File [osp|a|] [osp|a|]] == Dir [osp|d|] [File [osp|a|] [osp|a|], File [osp|b|] [osp|b|]] &&
+    if Dir [osp|d|] [File [osp|b|] "b",File [osp|a|] "a"] == Dir [osp|d|] [File [osp|a|] "a", File [osp|b|] "b"] &&
         -- recursive sort order, enforces non-recursive sorting of Dirs
-       Dir [osp|d|] [Dir [osp|b|] undefined,File [osp|a|] [osp|a|]] /= Dir [osp|d|] [File [osp|a|] [osp|a|], Dir [osp|c|] undefined] &&
+       Dir [osp|d|] [Dir [osp|b|] undefined,File [osp|a|] "a"] /= Dir [osp|d|] [File [osp|a|] "a", Dir [osp|c|] undefined] &&
         -- check ordering of constructors:
        undefinedOrdFailed < undefinedOrdDir  &&
        undefinedOrdDir < undefinedOrdFile    &&
         -- check ordering by dir contents list length:
-       Dir "d" [File "b" "b",File "a" "a"] > Dir "d" [File "a" "a"] &&
+       Dir [osp|d|] [File [osp|b|] "b",File [osp|a|] "a"] > Dir [osp|d|] [File [osp|a|] "a"] &&
         -- recursive ordering on contents:
-       Dir "d" [File "b" "b", Dir "c" [File "a" "b"]] > Dir "d" [File "b" "b", Dir "c" [File "a" "a"]]
+       Dir [osp|d|] [File [osp|b|] "b", Dir [osp|c|] [File [osp|a|] "b"]] > Dir [osp|d|] [File [osp|b|] "b", Dir [osp|c|] [File [osp|a|] "a"]]
         then putStrLn "OK"
         else error "Ord/Eq instance is messed up"
 
@@ -149,7 +149,7 @@ main = do
                       <> "has " <> (show dirsInStringCount)
 
 testTree :: AnchoredDirTree BL.ByteString
-testTree = """" :/ Dir testDir [dA , dB , dC , Failed "FAAAIIILL" undefined]
+testTree = "" :/ Dir testDir [dA , dB , dC , Failed "FAAAIIILL" undefined]
     where dA = Dir "A" [dA1 , dA2 , Failed "FAIL" undefined]
           dA1    = Dir "A1" [File "A" "a", File "B" "b"]
           dA2    = Dir "A2" [File "C" "c"]
