@@ -73,6 +73,7 @@ module System.Directory.Tree (
        , sortDir
        , sortDirShape
        , filterDir
+       , filterDirIO
        -- *** Low-level
        , transformDir
        -- ** Navigation
@@ -165,6 +166,8 @@ import System.IO.Unsafe(unsafeInterleaveIO)
 import qualified Data.ByteString.Lazy as BL
 import Prelude hiding (readFile, writeFile)
 import Data.Either (fromRight)
+
+import Control.Monad (filterM)
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
@@ -574,6 +577,12 @@ filterDir p = transformDir filterD
     where filterD (Dir n cs) = Dir n $ filter p cs
           filterD c          = c
 
+-- | `filterDir` for cases where IO is required to do the filtering.
+-- TODo filterDirM instead of assuming IO?
+filterDirIO :: (DirTree a -> IO Bool) -> DirTree a -> IO (DirTree a)
+filterDirIO p = transformDirIO filterD
+    where filterD (Dir n cs) = Dir n <$> filterM p cs
+          filterD c          = return c
 
 -- | Flattens a `DirTree` into a (never empty) list of tree constructors. `Dir`
 -- constructors will have [] as their `contents`:
@@ -682,6 +691,13 @@ transformDir :: (DirTree a -> DirTree a) -> DirTree a -> DirTree a
 transformDir f t = case f t of
                      (Dir n cs) -> Dir n $ map (transformDir f) cs
                      t'         -> t'
+
+transformDirIO :: (DirTree a -> IO (DirTree a)) -> DirTree a -> IO (DirTree a)
+transformDirIO f t = do
+  res <- f t
+  case res of
+    (Dir n cs) -> (Dir n) <$> mapM (transformDirIO f) cs
+    t'         -> return t'
 
 -- Lenses, generated with TH from "lens" -----------
 -- TODO deprecate these? Pain in the ass to generate, and maybe it's intended
