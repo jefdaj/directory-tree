@@ -20,12 +20,23 @@ import System.Directory.OsPath
 import System.OsPath
 import System.File.OsPath
 import System.IO (IOMode(..), Handle, utf8)
-import Prelude hiding (readFile, writeFile)
+-- import Prelude hiding (readFile, writeFile)
 import qualified Data.ByteString.Lazy as BL
-
+import qualified System.File.OsPath as SFO
+import qualified System.OsPath as OSP
+import qualified System.OsString.Internal.Types as SOT
 
 testDir :: OsPath
 testDir = [osp|/tmp/TESTDIR-LKJHBAE|]
+
+printTreeNames :: forall a. DirTree a -> IO ()
+printTreeNames d@(Dir {}) = do
+  printTreeName d
+  mapM_ printTreeNames $ contents d
+printTreeNames t = printTreeName t
+
+printTreeName :: forall a. DirTree a -> IO ()
+printTreeName t = OSP.decodeFS (name t) >>= putStrLn
 
 main :: IO ()
 main = do
@@ -54,7 +65,7 @@ main = do
 
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
-    tL <- readDirectoryWithL readFile testDir
+    tL <- readDirectoryWithL SFO.readFile testDir
     t@(_:/Dir _ [_,_,Dir _ [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
@@ -67,7 +78,7 @@ main = do
 
 
     -- run lazy fold, concating file contents. compare for equality:
-    tL_again <- sortDir </$> readDirectoryWithL readFile testDir
+    tL_again <- sortDir </$> readDirectoryWithL SFO.readFile testDir
     let tL_concated = F.concat $ dirTree tL_again -- TODO expects list because concat?
     if tL_concated == "abcdef" then return () else error "foldable broke"
     putStrLn "OK"
@@ -76,7 +87,8 @@ main = do
     putStrLn "-- If lazy IO is not working, we should be stalled right now"
     putStrLn "-- as we try to read in the whole root directory tree."
     putStrLn "-- Go ahead and press CTRL-C if you've read this far"
-    mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL readFile [osp|/|]
+    -- mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL SFO.readFile [osp|/|]
+    printTreeName =<< readDirectoryWithL SFO.readFile [osp|/|]
     putStrLn "\nOK"
 
 
