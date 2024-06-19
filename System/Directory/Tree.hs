@@ -658,7 +658,7 @@ writeJustDirs = writeDirectoryWith (const return)
 -- a consistent fold/traversal order on the same directory:
 -- TODO does OsPath fix it?
 getDirsFiles :: OsPath -> IO [OsPath]
-getDirsFiles cs = do dfs <- getDirectoryContents cs
+getDirsFiles cs = do dfs <- (reverse . sort) <$> getDirectoryContents cs
                      return $ dfs \\ [[osp|.|],[osp|..|]]
 
 
