@@ -77,12 +77,12 @@ source-repository head
 
 library
     exposed-modules: System.Directory.Tree
-    build-depends: base <5, filepath <2, directory <2, file-io, bytestring
+    build-depends: base <5, filepath >= 1.5.0 && <2, directory >= 1.3.8.0, file-io >= 0.1.1, bytestring
     ghc-options:       -Wall
 
 test-suite test
     main-is: Test.hs
     type: exitcode-stdio-1.0
-    build-depends: base <5, filepath <2, directory <2, file-io, bytestring
+    build-depends: base <5, filepath >= 1.5.0 && <2, directory >= 1.3.8.0, file-io >= 0.1.1, bytestring
                  , process
     ghc-options:       -Wall
