@@ -55,7 +55,7 @@ main = do
     putStrLn "OK"
 
     -- make file farthest to the right unreadable:
-    (Dir _ [_,_,Dir _ [_,_,File _ p_unreadable]]) <- sortDir . dirTree <$> build testDir
+    (Dir _ [_,_,Dir _ [_,_,File _ p_unreadable]]) <- sortDir . dirTree <$> build True testDir
     setPermissions p_unreadable emptyPermissions{readable   = False,
                                                    writable   = True,
                                                    executable = True,
@@ -65,8 +65,8 @@ main = do
 
     -- read with lazy and standard functions, compare for equality. Also test that our crazy
     -- operator works correctly inline with <$>:
-    tL <- readDirectoryWithL SFO.readFile testDir
-    t@(_:/Dir _ [_,_,Dir _ [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory testDir
+    tL <- readDirectoryWithL True SFO.readFile testDir
+    t@(_:/Dir _ [_,_,Dir _ [unreadable_constr,_,_]]) <- sortDir </$> id <$> readDirectory True testDir
     if  t == tL  then return () else error "lazy read  /=  standard read"
     putStrLn "OK"
 
@@ -79,7 +79,7 @@ main = do
 
     -- TODO figure this one out
     -- run lazy fold, concating file contents. compare for equality:
-    -- tL_again <- sortDir </$> readDirectoryWithL SFO.readFile testDir
+    -- tL_again <- sortDir </$> readDirectoryWithL True SFO.readFile testDir
     -- let tL_concated = BL.concat $ dirTree tL_again -- TODO expects list because concat?
     -- if tL_concated == "abcdef" then return () else error "foldable broke"
     -- putStrLn "OK"
@@ -88,8 +88,8 @@ main = do
     putStrLn "-- If lazy IO is not working, we should be stalled right now"
     putStrLn "-- as we try to read in the whole root directory tree."
     putStrLn "-- Go ahead and press CTRL-C if you've read this far"
-    -- mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL SFO.readFile [osp|/|]
-    (_ :/ rootDriveTree) <- readDirectoryWithL SFO.readFile [osp|/|]
+    -- mapM_ putStr =<< (map name . contents . dirTree) <$> readDirectoryWithL True SFO.readFile [osp|/|]
+    (_ :/ rootDriveTree) <- readDirectoryWithL True SFO.readFile [osp|/|]
     printTreeNames rootDriveTree
     putStrLn "\nOK"
 
