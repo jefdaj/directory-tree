@@ -258,8 +258,8 @@ infixl 4 </$>
 -- Uses @readDirectoryWith readFile@ internally and has the effect of traversing the
 -- entire directory structure. See `readDirectoryWithL` for lazy production
 -- of a DirTree structure.
-readDirectory :: OsPath -> IO (AnchoredDirTree BL.ByteString)
-readDirectory = readDirectoryWith readFile
+readDirectory :: Bool -> OsPath -> IO (AnchoredDirTree BL.ByteString)
+readDirectory followLinks = readDirectoryWith followLinks readFile
 
 
 -- | Build a 'DirTree' rooted at @p@ and using @f@ to fill the 'file' field of 'File' nodes.
@@ -272,8 +272,8 @@ readDirectory = readDirectoryWith readFile
 -- > readDirectoryWith return "../tmp"
 --
 -- Note though that the 'build' function below already does this.
-readDirectoryWith :: (OsPath -> IO a) -> OsPath -> IO (AnchoredDirTree a)
-readDirectoryWith f p = buildWith' buildAtOnce' f p
+readDirectoryWith :: Bool -> (OsPath -> IO a) -> OsPath -> IO (AnchoredDirTree a)
+readDirectoryWith followLinks f p = buildWith' (buildAtOnce' followLinks) f p
 
 
 -- | A "lazy" version of `readDirectoryWith` that does IO operations as needed
@@ -380,8 +380,8 @@ writeDirectoryWith f (b:/t) = (b:/) <$> write' b t
 
 
 -- | a simple application of readDirectoryWith openFile:
-openDirectory :: OsPath -> IOMode -> IO (AnchoredDirTree Handle)
-openDirectory p m = readDirectoryWith (flip openFile m) p
+openDirectory :: Bool -> OsPath -> IOMode -> IO (AnchoredDirTree Handle)
+openDirectory followLinks p m = readDirectoryWith followLinks (flip openFile m) p
 
 
 
@@ -389,9 +389,11 @@ openDirectory p m = readDirectoryWith (flip openFile m) p
 -- the base directory in the Anchored* wrapper. Errors are caught in the tree in
 -- the Failed constructor. The 'file' fields initially are populated with full
 -- paths to the files they are abstracting.
-build :: OsPath -> IO (AnchoredDirTree OsPath)
-build = buildWith' buildAtOnce' return   -- we say 'return' here to get
-                                         -- back a  tree  of  OsPaths
+build :: Bool -> OsPath -> IO (AnchoredDirTree OsPath)
+build followLinks = buildWith'
+                      (buildAtOnce' followLinks)
+                      return   -- we say 'return' here to get
+                               -- back a tree of OsPaths
 
 
 -- | identical to `build` but does directory reading IO lazily as needed:
@@ -417,13 +419,14 @@ buildWith' bf' f p =
 
 
 -- IO function passed to our builder and finally executed here:
-buildAtOnce' :: Builder a
-buildAtOnce' f p = handleDT n $
+buildAtOnce' :: Bool -> Builder a
+buildAtOnce' followLinks f p = handleDT n $
            do isFile <- doesFileExist p
-              if isFile
+              isLink <- pathIsSymbolicLink p
+              if isFile || (isLink && not followLinks)
                  then  File n <$> f p
                  else do cs <- getDirsFiles p
-                         Dir n <$> T.mapM (buildAtOnce' f . combine p) cs
+                         Dir n <$> T.mapM (buildAtOnce' followLinks f . combine p) cs
      where n = topDir p
 
 
